@@ -1,0 +1,12 @@
+# Continue the story and stand still for two minutes after the load (where the long GPU frames showed up).
+wait_menu 240
+wait 3
+key Return
+wait 4
+key Return
+wait 4
+key Return
+wait 4
+key Return
+wait_player 420
+wait 120

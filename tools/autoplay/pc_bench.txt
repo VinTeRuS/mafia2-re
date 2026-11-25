@@ -1,0 +1,20 @@
+# PC: new steps check. Into the mission, position, a bench segment, a teleport 20 m away, another bench.
+wait 50
+key Return
+wait 20
+key Return
+wait 25
+key Return
+wait 5
+key Return
+wait_player 400
+wait 10
+pos
+wait 2
+bench start 15
+teleport -150.25 -304.24 -234.18
+wait 3
+pos
+wait 2
+shot teleported
+bench moved 15

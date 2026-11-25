@@ -1,0 +1,13 @@
+# PC headless: the menu flow by time (no menu video wait), then a minute in the mission.
+wait 50
+key Return
+wait 20
+key Return
+wait 25
+key Return
+wait 5
+key Return
+wait_player 400
+wait 20
+shot pc_start
+wait 60

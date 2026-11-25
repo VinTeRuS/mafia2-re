@@ -1,0 +1,29 @@
+# Jimmy's Vendetta from the main menu, screenshots of each screen on the way and of the start.
+wait_menu 240
+wait 3
+key Return
+wait 3
+key Escape
+wait 2
+key Down
+wait 1
+key Down
+wait 1
+key Return
+wait 3
+shot j1
+key Return
+wait 3
+shot j2
+key Return
+wait 3
+shot j3
+key Return
+wait 3
+shot j4
+wait_player 420
+wait 15
+shot j5
+lua local p = game.game:GetActivePlayer() local pos = p:GetPos() return "POS " .. pos.x .. " " .. pos.y .. " " .. pos.z
+wait 25
+shot j6

@@ -1,0 +1,320 @@
+// Guest address space: a private 4 GiB window of the host address space at kGuestBase (guest.h), reserved
+// inaccessible at startup.
+//
+//   import thunks: an arena block (imports.cpp)
+//   kEngineBase (guest.h) mafia2.exe at its preferred base, below the arena
+//   0x02000000 .. 0x80000000  arena: VirtualAlloc pages, guest heap, stacks, TEBs (below 2 GiB: the game is not
+//                             large-address aware)
+//
+// Guest allocations make their pages read/write (MAP_NORESERVE: the kernel commits pages on first touch, close
+// enough to VirtualAlloc's reserve/commit) and frees make them inaccessible again. The window keeps the guest out of
+// the low 4 GiB, where Android's Java heap (up to 3+ GiB on some phones) and Qualcomm's GPU driver live.
+#include <sys/mman.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <string>
+#include <map>
+#include <mutex>
+#include <vector>
+
+#include "guest.h"
+
+namespace native {
+
+namespace {
+
+constexpr uint32_t kArenaLo = 0x02200000u;  // Mafia II: the image ends at 0x01d5d000 + 0x400000 = 0x215d000
+static_assert(kEngineBase + kEngineReserve <= kArenaLo, "the exe must stay below the arena");
+constexpr uint32_t kArenaHi = 0x80000000u;
+constexpr uint64_t kWindow = 1ull << 32;
+constexpr uint32_t kPage = 0x10000u;  // VirtualAlloc allocation granularity
+
+std::mutex g_mutex;
+std::map<uint32_t, uint32_t> g_free;  // start -> size, page ranges available
+std::map<uint32_t, uint32_t> g_used;  // start -> size, allocated page ranges
+
+uint32_t RoundUp(uint32_t v, uint32_t a) { return (v + a - 1) & ~(a - 1); }
+
+// Makes [a, a + size) of the guest window usable, or (unmap) inaccessible and empty again.
+bool MapGuest(uint32_t a, uint32_t size) {
+    return mmap(Ptr<void>(a), size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED,
+                -1, 0) != MAP_FAILED;
+}
+void UnmapGuest(uint32_t a, uint32_t size) {
+    mmap(Ptr<void>(a), size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0);
+}
+
+// The arena (g_free) is mapped page range by page range as the guest allocates it.
+uint32_t PageAllocLocked(uint32_t size, uint32_t at) {
+    size = RoundUp(size ? size : 1, kPage);
+    if (at) {
+        at &= ~(kPage - 1);
+        // Committing inside an existing reservation returns it unchanged.
+        auto u = g_used.upper_bound(at);
+        if (u != g_used.begin()) {
+            --u;
+            if (at >= u->first && at < u->first + u->second) {
+                return at;
+            }
+        }
+        auto f = g_free.upper_bound(at);
+        if (f == g_free.begin()) {
+            return 0;
+        }
+        --f;
+        uint32_t fs = f->first, fsz = f->second;
+        if (at < fs || uint64_t(at) + size > uint64_t(fs) + fsz) {
+            return 0;
+        }
+        if (!MapGuest(at, size)) return 0;
+        g_free.erase(f);
+        if (at > fs) {
+            g_free[fs] = at - fs;
+        }
+        if (at + size < fs + fsz) {
+            g_free[at + size] = fs + fsz - (at + size);
+        }
+        g_used[at] = size;
+        return at;
+    }
+    for (auto f = g_free.begin(); f != g_free.end(); ++f) {
+        if (f->second < size) continue;
+        uint32_t a = f->first, rest = f->second - size;
+        if (!MapGuest(a, size)) return 0;
+        g_free.erase(f);
+        if (rest) {
+            g_free[a + size] = rest;
+        }
+        g_used[a] = size;
+        return a;
+    }
+    return 0;
+}
+
+// ---- heap: size classes carved from page chunks, large blocks straight from pages ----
+// Block header (16 bytes, keeps 16-byte alignment): size class index or ~0 for large, user size.
+struct Header {
+    uint32_t cls;
+    uint32_t size;
+    uint32_t magic;
+    uint32_t pad;
+};
+constexpr uint32_t kMagic = 0x48454150u;  // "HEAP"
+constexpr uint32_t kLarge = 0xffffffffu;
+constexpr int kClasses = 40;
+uint32_t g_class_size[kClasses];
+// Free blocks per size class, kept on the host side: a guest write into freed memory (use after free, which the
+// Windows heap usually survives) cannot corrupt the allocator.
+std::vector<uint32_t> g_free_blocks[kClasses];
+uint32_t g_chunk_ptr = 0, g_chunk_end = 0;
+
+void InitClasses() {
+    int n = 0;
+    for (uint32_t s = 32; s <= 512; s += 32) g_class_size[n++] = s;       // 16 classes
+    for (uint32_t s = 768; s <= 65536 && n < kClasses; s += s / 2) g_class_size[n++] = s;
+    while (n < kClasses) g_class_size[n++] = 0xffffffffu;
+}
+
+int ClassFor(uint32_t total) {
+    for (int i = 0; i < kClasses; ++i) {
+        if (g_class_size[i] != 0xffffffffu && total <= g_class_size[i]) return i;
+    }
+    return -1;
+}
+
+}  // namespace
+
+void InitGuestMemory() {
+    void* want = reinterpret_cast<void*>(static_cast<uintptr_t>(kGuestBase));
+    void* p = mmap(want, kWindow, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
+    if (p != want) {
+        Fatal("cannot reserve the guest address space at %llx (%s)", (unsigned long long)kGuestBase,
+              p == MAP_FAILED ? strerror(errno) : "taken");
+    }
+    // The first page reads as zeros: the movie player reads a cleared descriptor for one frame when a script stops a
+    // preview (FUN_006a7ae0, [0x2a0] == 0 while still in the playing state). Writes through null still fault.
+    mprotect(p, 4096, PROT_READ);
+    g_free[kArenaLo] = kArenaHi - kArenaLo;
+    Log("memory: guest window at %llx, arena %u MiB", (unsigned long long)kGuestBase, (kArenaHi - kArenaLo) >> 20);
+    InitClasses();
+}
+
+uint32_t PageAlloc(uint32_t size, uint32_t at) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return PageAllocLocked(size, at);
+}
+
+// VirtualQuery support: 1 = allocated (g_used block), 0 = free arena range, 2 = outside the arena (images, reserved).
+int GuestRegionInfo(uint32_t addr, uint32_t* start, uint32_t* end) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (addr < kArenaLo || addr >= kArenaHi) {  // reserved gaps and images: as large as they go
+        static const uint64_t kBounds[] = {0, kEngineBase, kEngineBase + kEngineReserve, kArenaLo, kArenaHi, 1ull << 32};
+        for (size_t i = 0; i + 1 < sizeof(kBounds) / sizeof(kBounds[0]); ++i) {
+            if (addr >= kBounds[i] && addr < kBounds[i + 1]) {
+                *start = uint32_t(kBounds[i]);
+                *end = uint32_t(kBounds[i + 1]);  // (4 GiB wraps to 0: the size is computed modulo 2^32)
+                break;
+            }
+        }
+        return 2;
+    }
+    auto u = g_used.upper_bound(addr);
+    if (u != g_used.begin()) {
+        --u;
+        if (addr < u->first + u->second) {
+            *start = u->first;
+            *end = u->first + u->second;
+            return 1;
+        }
+    }
+    auto f = g_free.upper_bound(addr);
+    if (f != g_free.begin()) {
+        --f;
+        if (addr < f->first + f->second) {
+            *start = f->first;
+            *end = f->first + f->second;
+            return 0;
+        }
+    }
+    *start = addr & ~0xfffu;
+    *end = *start + 0x1000;
+    return 2;
+}
+
+// Address space the guest holds (reserved or committed) and the highest address in use, for the perf line.
+std::string ArenaUsage() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    uint64_t used = 0;
+    uint32_t top = 0;
+    for (const auto& u : g_used) {
+        used += u.second;
+        top = std::max(top, u.first + u.second);
+    }
+    static uint64_t peak = 0;
+    peak = std::max(peak, used);
+    char line[96];
+    snprintf(line, sizeof(line), "%llu MiB (peak %llu), up to %08x", (unsigned long long)(used >> 20),
+             (unsigned long long)(peak >> 20), top);
+    return line;
+}
+
+std::string ArenaBlocks() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::string out;
+    for (const auto& u : g_used) {
+        char b[64];
+        snprintf(b, sizeof b, "%08x +%x\n", u.first, u.second);
+        out += b;
+    }
+    return out;
+}
+
+void PageFree(uint32_t addr) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto u = g_used.find(addr);
+    if (u == g_used.end()) {
+        return;
+    }
+    uint32_t a = u->first, size = u->second;
+    g_used.erase(u);
+    UnmapGuest(a, size);  // drops the pages: zero on reuse, as VirtualAlloc guarantees
+    auto next = g_free.find(a + size);
+    if (next != g_free.end()) {
+        size += next->second;
+        g_free.erase(next);
+    }
+    auto prev = g_free.lower_bound(a);
+    if (prev != g_free.begin()) {
+        --prev;
+        if (prev->first + prev->second == a) {
+            prev->second += size;
+            return;
+        }
+    }
+    g_free[a] = size;
+}
+
+uint32_t HeapAlloc(uint32_t size) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    uint32_t total = size + sizeof(Header);
+    int cls = ClassFor(total);
+    uint32_t block;
+    if (cls < 0) {
+        block = PageAllocLocked(total, 0);
+        if (!block) return 0;
+        *Ptr<Header>(block) = {kLarge, size, kMagic, 0};
+        return block + sizeof(Header);
+    }
+    if (!g_free_blocks[cls].empty()) {
+        block = g_free_blocks[cls].back();
+        g_free_blocks[cls].pop_back();
+    } else {
+        uint32_t csize = g_class_size[cls];
+        if (g_chunk_ptr + csize > g_chunk_end) {
+            g_chunk_ptr = PageAllocLocked(1 << 20, 0);
+            if (!g_chunk_ptr) return 0;
+            g_chunk_end = g_chunk_ptr + (1 << 20);
+        }
+        block = g_chunk_ptr;
+        g_chunk_ptr += csize;
+    }
+    *Ptr<Header>(block) = {uint32_t(cls), size, kMagic, 0};
+    return block + sizeof(Header);
+}
+
+void HeapFree(uint32_t addr) {
+    if (!addr) return;
+    uint32_t block = addr - sizeof(Header);
+    Header* h = Ptr<Header>(block);
+    std::unique_lock<std::mutex> lock(g_mutex);
+    // The header lives in guest memory: check it under the lock (two threads freeing one block) and do not trust a
+    // size class the game may have overwritten.
+    if (h->magic != kMagic || (h->cls != kLarge && h->cls >= uint32_t(kClasses))) {
+        static int logged = 0;
+        if (logged++ < 20) Log("heap: free of a foreign or damaged block %08x ignored (class %08x)", addr, h->cls);
+        return;
+    }
+    h->magic = 0;
+    if (h->cls == kLarge) {
+        lock.unlock();
+        PageFree(block);
+        return;
+    }
+    g_free_blocks[h->cls].push_back(block);
+}
+
+uint32_t HeapSize(uint32_t addr) {
+    Header* h = Ptr<Header>(addr - sizeof(Header));
+    return h->magic == kMagic ? h->size : 0xffffffffu;
+}
+
+uint32_t HeapRealloc(uint32_t addr, uint32_t size) {
+    if (!addr) return HeapAlloc(size);
+    if (!size) {
+        HeapFree(addr);
+        return 0;
+    }
+    Header* h = Ptr<Header>(addr - sizeof(Header));
+    if (h->cls != kLarge && size + sizeof(Header) <= g_class_size[h->cls]) {
+        h->size = size;
+        return addr;
+    }
+    uint32_t n = HeapAlloc(size);
+    if (n) {
+        memcpy(Ptr<void>(n), Ptr<void>(addr), h->size < size ? h->size : size);
+        HeapFree(addr);
+    }
+    return n;
+}
+
+uint32_t GuestStrdup(const char* s) {
+    uint32_t n = static_cast<uint32_t>(strlen(s)) + 1;
+    uint32_t a = HeapAlloc(n);
+    memcpy(Ptr<void>(a), s, n);
+    return a;
+}
+
+}  // namespace native

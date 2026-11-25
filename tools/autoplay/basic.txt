@@ -1,0 +1,52 @@
+# Default autoplay: title screen -> Continue (or New game on an empty profile) -> walk, run, look around, aim and
+# shoot, reload, try a car, then stand still for a minute. Steps: src/native/autoplay.cpp.
+wait_menu 240
+wait 3
+key Return
+wait 4
+key Return
+wait 4
+key Return
+wait 4
+key Return
+wait_player 420
+log in the mission
+wait 15
+shot start
+log walk
+# the first missions start in cover: leave it first
+key Left Ctrl
+wait 1.5
+down W
+wait 4
+down Left Shift
+wait 4
+up Left Shift
+mouse 500 0 2
+wait 3
+up W
+mouse -300 60 1.5
+shot walk
+log shoot
+mdown right
+wait 1
+click left
+wait 0.5
+click left
+wait 0.5
+mup right
+key R
+wait 2
+log car
+key F
+wait_car 10
+shot car
+key W
+down W
+wait 6
+up W
+key F
+wait_foot 10
+log steady
+wait 60
+shot end
