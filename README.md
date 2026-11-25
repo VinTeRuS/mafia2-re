@@ -59,7 +59,19 @@ Linux, Python 3 with `capstone` and `pefile`, the Android NDK and SDK build-tool
 `tools/autoplay.sh` plays a scripted scenario on a connected phone (for example the game's built-in benchmark,
 `tools/autoplay/builtin_bench.txt`) and collects the log and screenshots.
 
+## Credits and forks
+
+Port author: **VinTeRuS** (https://github.com/VinTeRuS). If you fork this project, share the port, publish a build
+of it or use its code (the host, the recompiler, the Android app, any part of it), you **must**:
+
+- credit the author of the original port (VinTeRuS) and link this repository: https://github.com/VinTeRuS/mafia2-re,
+  in your README, release notes and in the app's description;
+- say clearly which changes are yours, and not present the port or its parts as your own work;
+- not sell builds or put them behind a paywall;
+- not add game files or code generated from the game to your fork or builds.
+
 ## Legal
 
-You need your own bought copy of Mafia II. Mafia II is a trademark of Take-Two Interactive; this project isn't
-affiliated with Take-Two, 2K or Hangar 13.
+The repository has no game files and no code generated from them, and the port does not bypass any DRM: you need
+your own bought copy of Mafia II. Mafia II is a trademark of Take-Two Interactive; this project isn't affiliated with
+Take-Two, 2K or Hangar 13.
