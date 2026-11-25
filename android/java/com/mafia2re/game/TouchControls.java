@@ -174,11 +174,42 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Setting("Скорость камеры", "ui_cam", new String[] {"50%", "75%", "100%", "150%", "200%"},
                 new int[] {50, 75, 100, 150, 200}, false),
         new Setting("Инверсия Y", "ui_invert", new String[] {"Выкл", "Вкл"}, new int[] {0, 1}, false),
-        new Setting("Без ожидания GPU", "query_nowait", new String[] {"Выкл", "Вкл"}, new int[] {0, 1}, true),
         new Setting("Графика игры", "game_detail", new String[] {"Низкая", "Средняя", "Высокая"},
                 new int[] {0, 1, 2}, true),
+        new Setting("Язык", "ui_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, false),
     };
-    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 1, 0};
+    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1};  // -1: from the phone's language
+    private static final int LANG = 13;
+
+    // ---- interface language: strings are written in Russian and looked up here for English ----
+    private static boolean english;
+    private static final java.util.Map<String, String> EN = new java.util.HashMap<>();
+    static {
+        String[] pairs = {
+            "Разрешение", "Resolution", "Текстуры", "Textures", "Полные", "Full", "Средние", "Medium",
+            "Низкие", "Low", "Лимит FPS", "FPS limit", "Нет", "None", "Экономия батареи", "Battery saver",
+            "Выкл", "Off", "Вкл", "On", "Прозрачность", "Opacity", "Размер кнопок", "Button size",
+            "Вибрация", "Vibration", "Показывать FPS", "Show FPS", "Скрывать с геймпадом", "Hide with a gamepad",
+            "Бег от края стика", "Run at the stick's edge", "Скорость камеры", "Camera speed",
+            "Инверсия Y", "Invert Y", "Графика игры", "Game graphics", "Низкая", "Low", "Средняя", "Medium",
+            "Высокая", "High", "Язык", "Language",
+            "НАСТРОЙКИ", "SETTINGS", "РАСКЛАДКА", "LAYOUT", "ЗАКРЫТЬ", "CLOSE", "ПЕРЕЗАПУСК", "RESTART",
+            "* после перезапуска", "* applies after restart", "СБРОС", "RESET", "ГОТОВО", "DONE", "СТИК", "STICK",
+            "Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер",
+            "Drag the buttons and the stick, tap one to resize it",
+            "Поддержать на Patreon", "Support on Patreon", "АВТО", "CAR", "ИГРА", "GAME", "МЕНЮ", "MENU",
+            "ПАУЗА", "PAUSE", "ОК", "OK", "КАРТА", "MAP", "ОРУЖИЕ", "WEAPON", "ЕЩЁ", "MORE", "ГРАНАТА", "GRENADE",
+            "ПРИСЕД", "CROUCH", "БЕГ", "RUN", "ОГОНЬ", "FIRE", "ПРИЦЕЛ", "AIM", "ДЕЙСТВИЕ", "ACTION",
+            "ПРЫЖОК", "JUMP", "СЕСТЬ", "ENTER CAR", "УКРЫТИЕ", "COVER", "ОБОЙМА", "RELOAD", "УДАР", "PUNCH",
+            "РУЧНИК", "HANDBRAKE", "ВЫЙТИ", "EXIT CAR", "СИГНАЛ", "HORN", "ЛИМИТ", "LIMITER",
+        };
+        for (int i = 0; i + 1 < pairs.length; i += 2) EN.put(pairs[i], pairs[i + 1]);
+    }
+    private static String tr(String ru) {
+        if (!english) return ru;
+        String en = EN.get(ru);
+        return en != null ? en : ru;
+    }
     private boolean panelOpen = false, restartNeeded = false;
     private final RectF panel = new RectF(), restartRect = new RectF(), closeRect = new RectF(),
             layoutRect = new RectF();
@@ -226,7 +257,12 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         prefs = context.getSharedPreferences("controls", Context.MODE_PRIVATE);
         for (int i = 0; i < settings.length; i++) {
             Setting s = settings[i];
-            s.index = Math.max(0, Math.min(s.values.length - 1, prefs.getInt(s.key, DEFAULTS[i])));
+            int def = DEFAULTS[i];
+            if (i == LANG) {
+                String l = java.util.Locale.getDefault().getLanguage();
+                def = l.equals("ru") || l.equals("uk") || l.equals("be") ? 0 : 1;
+            }
+            s.index = Math.max(0, Math.min(s.values.length - 1, prefs.getInt(s.key, def)));
         }
         loadLayout();
         applyUiSettings();
@@ -328,6 +364,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         autoRun = settings[9].value() != 0;
         camGain = settings[10].value() / 100f;
         invertY = settings[11].value() != 0;
+        english = settings[LANG].value() == 1;
         layoutButtons(getWidth(), getHeight());
     }
 
@@ -1176,7 +1213,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         float pad = 22 * density;
         text.setTextSize(20 * density);
         text.setColor(RED);
-        c.drawText("НАСТРОЙКИ", panel.centerX(), panel.top + 36 * density, text);
+        c.drawText(tr("НАСТРОЙКИ"), panel.centerX(), panel.top + 36 * density, text);
         // Credit, in the corners beside the title.
         text.setTextSize(11 * density);
         text.setColor(0xffa09880);
@@ -1184,7 +1221,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         c.drawText(SetupActivity.CREDIT, panel.left + pad, panel.top + 34 * density, text);
         text.setTextAlign(Paint.Align.RIGHT);
         text.setColor(0xffffc04d);
-        String support = "Support on Patreon";
+        String support = tr("Поддержать на Patreon");
         c.drawText(support, panel.right - pad, panel.top + 34 * density, text);
         float sw = text.measureText(support);
         supportRect.set(panel.right - pad - sw - 8 * density, panel.top + 14 * density, panel.right - pad + 8 * density,
@@ -1204,7 +1241,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             float y = top + rowH * (i % rows) + rowH / 2;
             text.setTextAlign(Paint.Align.LEFT);
             text.setColor(0xfff0e4c8);
-            c.drawText(s.label + (s.engine && !s.key.equals("fps_limit") ? " *" : ""), colLeft, y + 5 * density,
+            c.drawText(tr(s.label) + (s.engine && !s.key.equals("fps_limit") ? " *" : ""), colLeft, y + 5 * density,
                     text);
             float vx = colRight - 62 * density;
             RectF l = new RectF(vx - 64 * density, y - rowH / 2, vx - 32 * density, y + rowH / 2);
@@ -1216,7 +1253,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             c.drawText("‹", l.centerX(), y + 6 * density, text);
             c.drawText("›", r.centerX(), y + 6 * density, text);
             text.setColor(0xffffffff);
-            c.drawText(s.names[s.index], vx, y + 5 * density, text);
+            c.drawText(tr(s.names[s.index]), vx, y + 5 * density, text);
             edge.setStrokeWidth(0.6f * density);
             edge.setColor(0x40e6dcc6);
             c.drawLine(colLeft, y + rowH / 2, colRight, y + rowH / 2, edge);
@@ -1225,16 +1262,16 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         float by = panel.bottom - 36 * density, pillW = 150 * density, gap = 12 * density;
         float cx = panel.centerX();
         layoutRect.set(cx - pillW * 1.5f - gap, by - 18 * density, cx - pillW * 0.5f - gap, by + 18 * density);
-        drawPill(c, layoutRect, "РАСКЛАДКА", false);
+        drawPill(c, layoutRect, tr("РАСКЛАДКА"), false);
         closeRect.set(cx + pillW * 0.5f + gap, by - 18 * density, cx + pillW * 1.5f + gap, by + 18 * density);
-        drawPill(c, closeRect, "ЗАКРЫТЬ", false);
+        drawPill(c, closeRect, tr("ЗАКРЫТЬ"), false);
         restartRect.set(cx - pillW * 0.5f, by - 18 * density, cx + pillW * 0.5f, by + 18 * density);
         if (restartNeeded) {
-            drawPill(c, restartRect, "RESTART", true);
+            drawPill(c, restartRect, tr("ПЕРЕЗАПУСК"), true);
         } else {
             text.setTextSize(11 * density);
             text.setColor(0xffa09880);
-            c.drawText("* applies after restart", restartRect.centerX(), by + 4 * density, text);
+            c.drawText(tr("* после перезапуска"), restartRect.centerX(), by + 4 * density, text);
         }
     }
 
@@ -1247,11 +1284,11 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         float cx = getWidth() * 0.38f, top = 16 * density;  // left of centre: clear of the buttons on the top right
         text.setTextSize(15 * density);
         text.setColor(0xfff5e6c0);
-        c.drawText("Drag the buttons and the stick, tap one to resize it", cx, top + 70 * density, text);
+        c.drawText(tr("Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер"), cx, top + 70 * density, text);
         resetRect.set(cx - 162 * density, top, cx - 12 * density, top + 38 * density);
         doneRect.set(cx + 12 * density, top, cx + 162 * density, top + 38 * density);
-        drawPill(c, resetRect, "RESET", false);
-        drawPill(c, doneRect, "DONE", true);
+        drawPill(c, resetRect, tr("СБРОС"), false);
+        drawPill(c, doneRect, tr("ГОТОВО"), true);
         if (selected != null || selectedStick) {
             float sx = selected != null ? selected.cx : stickHomeX, sy = selected != null ? selected.cy : stickHomeY;
             float sr = selected != null ? selected.r : stickR;
@@ -1265,7 +1302,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             drawPill(c, biggerRect, "+", false);
             text.setTextSize(15 * density);
             text.setColor(0xfff5e6c0);
-            c.drawText((selected != null ? selected.label : "STICK") + "  " + Math.round(size * 100) + "%", cx,
+            c.drawText((selected != null ? tr(selected.label) : tr("СТИК")) + "  " + Math.round(size * 100) + "%", cx,
                     y + 25 * density, text);
         } else {
             smallerRect.setEmpty();
@@ -1312,7 +1349,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             return;
         }
         boolean shown = !controlsHidden() && !movieHidden();
-        if (shown) drawPill(canvas, modeRect, gameMode ? (inCar ? "АВТО" : "ИГРА") : "МЕНЮ", gameMode);
+        if (shown) drawPill(canvas, modeRect, tr(gameMode ? (inCar ? "АВТО" : "ИГРА") : "МЕНЮ"), gameMode);
         drawGear(canvas);
         if (showFps) drawPerf(canvas);
         if (gameMode && shown) drawStick(canvas);
