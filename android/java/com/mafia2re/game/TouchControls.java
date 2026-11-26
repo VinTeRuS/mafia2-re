@@ -179,9 +179,13 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Setting("Язык", "ui_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, false),
         new Setting("Озвучка", "game_voice", new String[] {"Русская", "Английская"}, new int[] {0, 1}, true),
         new Setting("Язык игры", "game_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, true),
+        new Setting("Прицел", "ui_aim_toggle", new String[] {"Удержание", "Переключение"}, new int[] {0, 1}, false),
     };
-    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 0};  // -1: from the phone's language
-    private static final int LANG = 13;
+    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 0, 1};  // -1: from the phone's language
+    private static final int LANG = 13, AIM_TOGGLE = 16;
+    // Aim as a switch (setting "Прицел"): one tap holds the right mouse button, the next releases it, so the camera
+    // and fire can be used with the other fingers.
+    private boolean aimToggle, aimLatched;
 
     // ---- interface language: strings are written in Russian and looked up here for English ----
     private static boolean english;
@@ -194,7 +198,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             "Вибрация", "Vibration", "Показывать FPS", "Show FPS", "Скрывать с геймпадом", "Hide with a gamepad",
             "Бег от края стика", "Run at the stick's edge", "Скорость камеры", "Camera speed",
             "Инверсия Y", "Invert Y", "Графика игры", "Game graphics", "Низкая", "Low", "Средняя", "Medium",
-            "Высокая", "High", "Язык", "Language", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
+            "Высокая", "High", "Язык", "Language", "Прицел", "Aim", "Удержание", "Hold", "Переключение", "Toggle", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
             "НАСТРОЙКИ", "SETTINGS", "РАСКЛАДКА", "LAYOUT", "ЗАКРЫТЬ", "CLOSE", "ПЕРЕЗАПУСК", "RESTART",
             "* после перезапуска", "* applies after restart", "СБРОС", "RESET", "ГОТОВО", "DONE", "СТИК", "STICK",
             "Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер",
@@ -367,6 +371,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         camGain = settings[10].value() / 100f;
         invertY = settings[11].value() != 0;
         english = settings[LANG].value() == 1;
+        aimToggle = settings[AIM_TOGGLE].value() == 1;
         layoutButtons(getWidth(), getHeight());
     }
 
@@ -530,6 +535,11 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             return;
         }
         if (b.keycode == KeyEvent.KEYCODE_F && !stateKnown) manualCar = !manualCar;  // the game cannot tell: guess
+        if (aimToggle && "aim".equals(b.icon)) {
+            aimLatched = !aimLatched;
+            mouseButton(MOUSE_RIGHT, aimLatched, lastMouseX, lastMouseY);
+            return;
+        }
         if (b.mouseButton != 0) mouseButton(b.mouseButton, true, lastMouseX, lastMouseY);
         else if (b.keycode == KeyEvent.KEYCODE_SHIFT_LEFT) setRun(stickRun, true);
         else key(b.keycode, true);
@@ -546,6 +556,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             return;
         }
         if (b.keycode == KeyEvent.KEYCODE_F && !stateKnown) inCar = manualCar;
+        if (aimToggle && "aim".equals(b.icon)) return;  // stays held until the next tap
         if (b.mouseButton != 0) mouseButton(b.mouseButton, false, lastMouseX, lastMouseY);
         else if (b.keycode == KeyEvent.KEYCODE_SHIFT_LEFT) setRun(stickRun, false);
         else key(b.keycode, false);
@@ -592,6 +603,10 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
 
     private void releaseAll() {
         for (Button b : buttons) if (b.pointer >= 0) release(b);
+        if (aimLatched) {
+            aimLatched = false;
+            mouseButton(MOUSE_RIGHT, false, lastMouseX, lastMouseY);
+        }
         if (stickPointer >= 0) releaseStick();
         setRun(false, false);
         if (lookPointer >= 0 && !gameMode) mouseButton(MOUSE_LEFT, false, lookX, lookY);
@@ -908,7 +923,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
     }
 
     private void drawButton(Canvas c, Button b) {
-        final boolean down = b.pointer >= 0 || ("more".equals(b.icon) && moreOpen);
+        final boolean down = b.pointer >= 0 || ("more".equals(b.icon) && moreOpen) || ("aim".equals(b.icon) && aimLatched);
         Bitmap bmp = cached(b.label + (down ? ":1:" : ":0:") + b.r, b.r + 12 * density,
                 (cc, x, y) -> paintButton(cc, b, x, y, down));
         blitCentered(c, bmp, b.cx, b.cy);
