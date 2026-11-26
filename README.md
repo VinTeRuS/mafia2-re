@@ -6,7 +6,8 @@ Native Android port of Mafia II (2010). Not an emulator and not Wine: `pc/mafia2
 x86 to C, built for arm64 and run on top of my own Win32/D3D9 layer (SDL2, DXVK). The game's physics is the real
 PhysX 2.8.3 and APEX, recompiled the same way.
 
-> **The project is at an early stage.** Expect frequent commits, quick fixes, things breaking and getting rewritten.
+> **The project is at a very early stage.** This is a first test build, not a finished port: expect crashes, graphics
+> glitches, slowdowns and lost progress. Frequent commits and quick fixes, things will break and get rewritten.
 
 If you like the port, you can support me on Patreon: **[patreon.com/VinTeRuS](https://www.patreon.com/cw/VinTeRuS/membership)**.
 
@@ -16,7 +17,8 @@ If you like the port, you can support me on Patreon: **[patreon.com/VinTeRuS](ht
   cutscenes with subtitles, sound and music. The DLC episodes (Jimmy's Vendetta, Betrayal of Jimmy) start too.
 - Touch controls change with the situation (on foot, in a car, in menus) and hide during videos; gamepads work.
 - Settings (gear button): resolution, texture quality, FPS limit, game graphics preset, battery saver, button size
-  and opacity, vibration, camera speed, invert Y.
+  and opacity, vibration, camera speed, invert Y, interface language, voice language (English speech with Russian
+  text needs the fan pack's `sds_ru` copied as `pc/sds_ru_en`).
 - Tested on a Pixel 6 (Mali-G78) only.
 - Known problems: heavy scenes (the city at night, big fights) drop frames; no multiplayer yet.
 
