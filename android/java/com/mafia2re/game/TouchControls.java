@@ -181,7 +181,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Setting("Язык игры", "game_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, true),
         new Setting("Прицел", "ui_aim_toggle", new String[] {"Удержание", "Переключение"}, new int[] {0, 1}, false),
     };
-    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 0, 1};  // -1: from the phone's language
+    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 1, 1};  // -1: from the phone's language
     private static final int LANG = 13, AIM_TOGGLE = 16;
     // Aim as a switch (setting "Прицел"): one tap holds the right mouse button, the next releases it, so the camera
     // and fire can be used with the other fingers.

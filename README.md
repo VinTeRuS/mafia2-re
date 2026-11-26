@@ -17,8 +17,8 @@ If you like the port, you can support me on Patreon: **[patreon.com/VinTeRuS](ht
   cutscenes with subtitles, sound and music. The DLC episodes (Jimmy's Vendetta, Betrayal of Jimmy) start too.
 - Touch controls change with the situation (on foot, in a car, in menus) and hide during videos; gamepads work.
 - Settings (gear button): resolution, texture quality, FPS limit, game graphics preset, battery saver, button size
-  and opacity, vibration, camera speed, invert Y, aim hold/toggle, interface language, game language (English text
-  and speech: an English install's `pc/sds_en` next to `pc/sds_ru`), voice (English speech with Russian text: the
+  and opacity, vibration, camera speed, invert Y, aim hold/toggle, interface language, game language (English by default
+  when the English text and speech, an English install's `pc/sds_en`, are there; Russian otherwise), voice (English speech with Russian text: the
   fan pack's `sds_ru` copied as `pc/sds_ru_en`). The DLC episodes keep the language of their own files.
 - Tested on a Pixel 6 (Mali-G78) only.
 - Known problems: heavy scenes (the city at night, big fights) drop frames; no multiplayer yet.

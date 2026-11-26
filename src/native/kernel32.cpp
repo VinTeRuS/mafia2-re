@@ -174,7 +174,7 @@ std::string HostPath(const char* win_path) {
             rest = rest.substr(sizeof(kUser) - 1);
         }
         // Language packs: the game's archives of pc\sds_ru are read from another folder when it is there.
-        //   game_lang = 1: pc\sds_en (English text and speech, from an English install);
+        //   game_lang = 1 (default): pc\sds_en (English text and speech, from an English install);
         //   else game_voice = 1: pc\sds_ru_en (fan pack: English speech, Russian text).
         // The original stays untouched; the game only ever sees sds_ru (FindFirstFileA hides the other sds_* folders).
         static const char kRu[] = "\\pc\\sds_ru";
@@ -184,7 +184,7 @@ std::string HostPath(const char* win_path) {
                 return stat((std::string(g_game_dir) + "/pc/" + d).c_str(), &st) == 0 && S_ISDIR(st.st_mode);
             };
             std::string d;
-            if (SettingInt("game_lang", 0) == 1) {
+            if (SettingInt("game_lang", 1) == 1) {  // English by default; Russian when pc/sds_en is missing
                 if (has("sds_en")) d = "sds_en";
                 else Log("game_lang: English asked for, but pc/sds_en is missing");
             }
