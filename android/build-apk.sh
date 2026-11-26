@@ -54,10 +54,6 @@ for abi in "${ABIS[@]}"; do
     if [ -e "$ROOT/build/android/$abi-v80/libmain.so" ]; then
         cp "$ROOT/build/android/$abi-v80/libmain.so" "$OUT/pkg/lib/$abi/libmain_v80.so"
     fi
-    # The build without x86 memory ordering (make ... TSO=0 OUT=../../build/android/arm64-v8a-fast): opt-in setting.
-    if [ -n "${WITH_FAST:-}" ] && [ -e "$ROOT/build/android/$abi-fast/libmain.so" ]; then
-        cp "$ROOT/build/android/$abi-fast/libmain.so" "$OUT/pkg/lib/$abi/libmain_fast.so"
-    fi
     # Adreno: Turnip and the adrenotools hooks (android/build-turnip.sh), when built
     if [ "$abi" = arm64-v8a ] && [ -e "$TURNIP_ROOT/lib/libvulkan_freedreno.so" ]; then
         cp "$TURNIP_ROOT"/lib/*.so "$OUT/pkg/lib/$abi/"

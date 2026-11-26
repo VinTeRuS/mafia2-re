@@ -27,8 +27,6 @@ public class GameActivity extends SDLActivity {
     protected String[] getLibraries() {
         boolean v80 = new java.io.File(getApplicationInfo().nativeLibraryDir, "libmain_v80.so").exists();
         if (!modernCpu() && v80) return new String[] {"SDL2", "dxvk_d3d9", "main_v80"};
-        // libmain_fast.so (built without the x86 memory-ordering emulation, make ... TSO=0) is no longer offered: the
-        // game's lock-free code may race without it (build-apk.sh packs it only with WITH_FAST=1).
         return new String[] {"SDL2", "dxvk_d3d9", "main"};
     }
 

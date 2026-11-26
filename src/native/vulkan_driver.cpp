@@ -112,7 +112,7 @@ void LogSystemDevice() {
 // checks that the device really is Turnip: if Turnip itself fails to load, the adrenotools hook quietly falls back
 // to the system driver, and a second copy of that driver in the process must not be used.
 // Why the test failed: an app may read its own logcat, so the test process's lines (bionic's abort message,
-// Mesa's and adrenotools' logs) go to proto-native.log, where the reports come from.
+// Mesa's and adrenotools' logs) go to mafia2-native.log, where the reports come from.
 void LogChildLogcat(pid_t pid) {
     char cmd[96];
     snprintf(cmd, sizeof(cmd), "logcat -d -b main,crash -v tag --pid=%d 2>/dev/null", int(pid));

@@ -952,18 +952,12 @@ M(IDirect3DDevice9, CreateAdditionalSwapChain) {
     W32(Arg(c, 2), SUCCEEDED(hr) ? Wrap(sc) : 0);
     Return(c, uint32_t(hr), 3);
 }
-#ifdef MAFIA2RE_PGO_GEN
-extern "C" int __llvm_profile_write_file(void);
-#endif
-void LazyDsReset();
-void LazyDsPoll(IDirect3DDevice9* dev);
 void AbPoll(uint64_t frame);
 void EnvFrameReset();
 extern int g_ab;
 M(IDirect3DDevice9, Reset) {
     D3DPRESENT_PARAMETERS pp = ToHost(Arg(c, 1));
     DrainGraves(true);
-    LazyDsReset();
     HRESULT hr = Host<IDirect3DDevice9>(Arg(c, 0))->Reset(&pp);
     Log("Reset %ux%u msaa %u/%u interval %u -> %08x", pp.BackBufferWidth, pp.BackBufferHeight, pp.MultiSampleType,
         pp.MultiSampleQuality, pp.PresentationInterval, uint32_t(hr));
@@ -1414,20 +1408,9 @@ M(IDirect3DDevice9, Present) {
     }
     if (!g_graves.empty()) DrainGraves(false);
     auto* dev = Host<IDirect3DDevice9>(Arg(c, 0));
-    LazyDsPoll(dev);
     AbPoll(frame);
     EnvFrameReset();
     ::PinDxvkThreads();
-#ifdef MAFIA2RE_PGO_GEN
-    {  // PGO=gen: the profile goes to files/mafia2.profraw every 60 s (an Android app is killed, never exits)
-        static auto last = std::chrono::steady_clock::now();
-        if (std::chrono::steady_clock::now() - last > std::chrono::seconds(60)) {
-            last = std::chrono::steady_clock::now();
-            int r = __llvm_profile_write_file();
-            Log("pgo: profile written (%d)", r);
-        }
-    }
-#endif
     MaybeScreenshot(dev);
     GpuFrame(dev, frame);
     RECT bars;
@@ -2041,71 +2024,6 @@ IDirect3DSurface9* ShadowColorTarget(IDirect3DDevice9* dev, uint32_t index, IDir
     }
     return n;
 }
-// Lazy depth buffer (setting lazy_ds, off by default). The game keeps its depth buffer bound through many
-// passes that never test or write depth (post-processing, HDR, bloom), and on a tiled GPU every pass with a depth
-// attachment loads and stores it: DXVK reported 52 render passes a frame with the GPU busy all the time. The depth
-// buffer the game sets is only handed to DXVK once a draw has depth or stencil enabled (or a Clear touches it), and
-// stays bound until the game changes it. Before the game's first SetDepthStencilSurface (and after a Reset) calls
-// pass straight through.
-bool g_lazy_off_now = false;  // switch while running: a file lazy_ds_off in the working directory (checked every 2 s)
-bool LazyDsOn() {
-    // Off by default: it made no difference (the passes' cost is not the depth loads).
-    static const bool on = SettingInt("lazy_ds", 0) != 0;
-    return on && !g_lazy_off_now;
-}
-bool g_lazy_active = false;              // the game set a depth buffer since the device was created or reset
-IDirect3DSurface9* g_lazy_game = nullptr;   // what the game has bound
-IDirect3DSurface9* g_lazy_bound = nullptr;  // what DXVK has bound
-bool g_z_enable = true, g_stencil_enable = false;
-// Holds a reference on the game's depth buffer while it is not bound in DXVK (so it cannot go away unseen); dropped
-// before a Reset, which fails while default-pool resources are referenced.
-void LazyDsReset() {
-    if (g_lazy_game) g_lazy_game->Release();
-    g_lazy_active = false;
-    g_lazy_game = g_lazy_bound = nullptr;
-    g_z_enable = true;
-    g_stencil_enable = false;
-}
-// SetDepthStencilSurface: true = handled here (nothing to pass on).
-bool LazyDsSet(IDirect3DDevice9* dev, IDirect3DSurface9* s) {
-    if (!LazyDsOn()) return false;
-    if (!g_lazy_active) {
-        g_lazy_active = true;
-        IDirect3DSurface9* cur = nullptr;  // what DXVK has now (the automatic depth buffer)
-        if (SUCCEEDED(dev->GetDepthStencilSurface(&cur)) && cur) { g_lazy_bound = cur; cur->Release(); }
-    }
-    if (s) s->AddRef();
-    if (g_lazy_game) g_lazy_game->Release();
-    g_lazy_game = s;
-    if (g_lazy_bound && g_lazy_bound != s) {  // never leave another (maybe smaller) depth buffer bound
-        dev->SetDepthStencilSurface(nullptr);
-        g_lazy_bound = nullptr;
-    }
-    return true;
-}
-void LazyDsPoll(IDirect3DDevice9* dev) {
-    static auto last = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    if (now - last < std::chrono::seconds(2)) return;
-    last = now;
-    bool off = access("lazy_ds_off", F_OK) == 0;
-    if (off == g_lazy_off_now) return;
-    static auto since = now;
-    static uint64_t since_frame = 0;
-    uint64_t frame = g_frames.load(std::memory_order_relaxed);
-    Log("lazy_ds: %s -> %s; the last %.0f s ran at %.1f fps", g_lazy_off_now ? "off" : "on", off ? "off" : "on",
-        std::chrono::duration<double>(now - since).count(),
-        double(frame - since_frame) / std::chrono::duration<double>(now - since).count());
-    since = now;
-    since_frame = frame;
-    if (off && g_lazy_active) {  // hand the game's depth buffer back and pass calls through again
-        dev->SetDepthStencilSurface(g_lazy_game);
-        if (g_lazy_game) g_lazy_game->Release();
-        g_lazy_active = false;
-        g_lazy_game = g_lazy_bound = nullptr;
-    }
-    g_lazy_off_now = off;
-}
 void AbPoll(uint64_t frame) {
     g_ab_frame = frame;
     static auto last = std::chrono::steady_clock::now();
@@ -2131,25 +2049,6 @@ void AbPoll(uint64_t frame) {
     since = now;
     since_frame = frame;
     g_ab = mode;
-}
-void LazyDsNeed(IDirect3DDevice9* dev) {
-    if (!g_lazy_active || g_lazy_bound == g_lazy_game) return;
-    dev->SetDepthStencilSurface(g_lazy_game);
-    g_lazy_bound = g_lazy_game;
-}
-void LazyDsDraw(IDirect3DDevice9* dev) {
-    if (g_lazy_active && g_lazy_bound != g_lazy_game && (g_z_enable || g_stencil_enable)) LazyDsNeed(dev);
-}
-void LazyDsState(uint32_t state, uint32_t value) {
-    if (state == D3DRS_ZENABLE) g_z_enable = value != 0;
-    else if (state == D3DRS_STENCILENABLE) g_stencil_enable = value != 0;
-}
-HRESULT LazyDsGet(IDirect3DDevice9* dev, IDirect3DSurface9** out) {
-    if (!g_lazy_active || !out) return dev->GetDepthStencilSurface(out);
-    *out = g_lazy_game;
-    if (!g_lazy_game) return D3DERR_NOTFOUND;
-    g_lazy_game->AddRef();
-    return D3D_OK;
 }
 // Shadow maps refreshed every other frame. Outdoors the sun's shadow maps are a large part of the GPU frame (8 passes
 // of a few hundred draws). Setting shadow_far_every (default 1 =

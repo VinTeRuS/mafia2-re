@@ -71,22 +71,6 @@ LDFLAGS := $(FFMPEG_LIBS) -pthread -L$(DXVK_LIB) -Wl,-rpath,$(DXVK_LIB) -ldxvk_d
 BINARY := mafia2-native
 endif
 
-# Profile-guided optimisation (clang): PGO=gen builds an instrumented libmain that writes files/mafia2.profraw every
-# 60 s while playing (d3d9.cpp); merge with llvm-profdata into PGO_DATA and build again with PGO=use.
-PGO ?=
-PGO_DATA ?= ../../build/pgo/mafia2.profdata
-ifeq ($(PGO),gen)
-RECOMP_EXTRA += -fprofile-instr-generate
-CXXFLAGS += -fprofile-instr-generate -DMAFIA2RE_PGO_GEN
-LDFLAGS += -fprofile-instr-generate
-OUT := $(OUT)-pgogen
-endif
-ifeq ($(PGO),use)
-RECOMP_EXTRA += -fprofile-instr-use=$(abspath $(PGO_DATA)) -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date
-CXXFLAGS += -fprofile-instr-use=$(abspath $(PGO_DATA)) -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date
-OUT := $(OUT)-pgo
-endif
-
 SRCS := main.cpp memory.cpp loader.cpp imports.cpp runtime.cpp thread.cpp kernel32.cpp msvcrt.cpp user32.cpp \
         advapi32.cpp misc.cpp d3d9.cpp input.cpp dinput.cpp gamepad.cpp config.cpp watchdog.cpp vulkan_driver.cpp \
         perf_hint.cpp stubs.cpp dsound.cpp profiler.cpp bf2_imports.cpp m2_imports.cpp m2_script.cpp bink.cpp debug.cpp autoplay.cpp

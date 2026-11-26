@@ -34,9 +34,6 @@
 namespace native {
 
 const char* g_game_dir = nullptr;
-#ifdef MAFIA2RE_PGO_GEN
-extern "C" void __llvm_profile_set_filename(const char*);
-#endif
 const char* g_data_dir = nullptr;  // Android: the app's external files folder (logs, ini, saves)
 
 namespace {
@@ -325,7 +322,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 #endif
-    // The game root: the folder with SporebinEP1/, Data/, DataEP1/ (C:\Game for the guest).
+    // The game root: the folder with pc/ and edit/ (C:\Game for the guest).
     g_game_dir = argc > 1 ? argv[1] : getenv("MAFIA2RE_GAME");
 #ifdef __ANDROID__
     // Logs, mafia2re.ini, saves (native_c) and the DXVK caches live in the app's external files folder
@@ -339,9 +336,6 @@ int main(int argc, char** argv) {
     }
     if (chdir(base) != 0) return 1;
     g_data_dir = base;
-#ifdef MAFIA2RE_PGO_GEN
-    __llvm_profile_set_filename((std::string(base) + "/mafia2.profraw").c_str());
-#endif
     setenv("DXVK_STATE_CACHE_PATH", base, 0);
     setenv("DXVK_LOG_PATH", base, 0);
     if (!g_game_dir) {
