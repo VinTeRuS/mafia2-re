@@ -2401,10 +2401,91 @@ const char* g_api_name[kApiSlots];
 uint32_t g_api_calls[kApiSlots];  // plain: the game renders from one thread; a lost count only blurs a debug stat
 bool g_api_trace;  // this frame's render target / depth / clear sequence is being written down (api_stats = 2)
 void ApiTrace(size_t k, Ctx* c);
+// api_stats = 3: how many draws repeat the previous draw's mesh/shaders/textures (only constants differ: what
+// instancing could merge) and how many distinct meshes a frame has.
+bool g_inst_on, g_inst_armed;
+uint32_t g_inst_state[12], g_inst_last[12];
+uint32_t g_inst_draws, g_inst_same, g_inst_sameprev_mesh;
+std::unordered_map<uint64_t, uint32_t> g_inst_mesh;
+// redundant calls (same value as already set): rs, samp, tex, stream, vs, ps, ib, decl, vs const registers, ps const
+const char* const kRedName[] = {"rs", "samp", "tex", "stream", "vs", "ps", "ib", "decl", "vsc", "psc"};
+uint32_t g_red[10], g_red_all[10];
+std::unordered_map<uint64_t, uint64_t> g_red_last;
+float g_red_vsc[256][4], g_red_psc[256][4];
+void RedNote(int kind, uint64_t key, uint64_t val) {
+    ++g_red_all[kind];
+    auto [it, fresh] = g_red_last.try_emplace(uint64_t(kind) << 56 | key, val);
+    if (!fresh && it->second == val) ++g_red[kind];
+    it->second = val;
+}
+void RedConst(int kind, uint32_t start, uint32_t ptr, uint32_t count) {
+    float (*shadow)[4] = kind == 8 ? g_red_vsc : g_red_psc;
+    for (uint32_t i = 0; i < count && start + i < 256; ++i) {
+        float v[4];
+        memcpy(v, Ptr<float>(ptr + 16 * i), 16);
+        ++g_red_all[kind];
+        if (!memcmp(v, shadow[start + i], 16)) ++g_red[kind];
+        memcpy(shadow[start + i], v, 16);
+    }
+}
+bool g_red_on;
+void RedHook(size_t k, Ctx* c) {
+    const char* n = g_api_name[k];
+    if (!strcmp(n, "SetRenderState")) RedNote(0, Arg(c, 1), Arg(c, 2));
+    else if (!strcmp(n, "SetSamplerState")) RedNote(1, uint64_t(Arg(c, 1)) << 16 | Arg(c, 2), Arg(c, 3));
+    else if (!strcmp(n, "SetTexture")) RedNote(2, Arg(c, 1), Arg(c, 2));
+    else if (!strcmp(n, "SetStreamSource")) RedNote(3, Arg(c, 1), uint64_t(Arg(c, 2)) << 32 ^ uint64_t(Arg(c, 3)) << 8 ^ Arg(c, 4));
+    else if (!strcmp(n, "SetVertexShader")) RedNote(4, 0, Arg(c, 1));
+    else if (!strcmp(n, "SetPixelShader")) RedNote(5, 0, Arg(c, 1));
+    else if (!strcmp(n, "SetIndices")) RedNote(6, 0, Arg(c, 1));
+    else if (!strcmp(n, "SetVertexDeclaration")) RedNote(7, 0, Arg(c, 1));
+    else if (!strcmp(n, "SetVertexShaderConstantF")) RedConst(8, Arg(c, 1), Arg(c, 2), Arg(c, 3));
+    else if (!strcmp(n, "SetPixelShaderConstantF")) RedConst(9, Arg(c, 1), Arg(c, 2), Arg(c, 3));
+}
+void InstNote(size_t k, Ctx* c) {
+    const char* n = g_api_name[k];
+    if (!strcmp(n, "Present")) {
+        if (!g_inst_armed) {  // recording started mid-frame: count from this Present to the next
+            g_inst_armed = true; g_inst_draws = g_inst_same = g_inst_sameprev_mesh = 0; g_inst_mesh.clear();
+            memset(g_inst_last, 0xff, sizeof g_inst_last);
+            return;
+        }
+        g_inst_armed = false;
+        g_inst_on = false;
+        uint32_t rep = 0, top = 0;
+        for (auto& [m, cnt] : g_inst_mesh) { rep += cnt - 1; top = std::max(top, cnt); }
+        Log("api instancing: %u draws, %u same as previous, %u same mesh as previous (other state), %zu meshes, "
+            "%u draws of an already drawn mesh, most drawn mesh %u times", g_inst_draws, g_inst_same,
+            g_inst_sameprev_mesh, g_inst_mesh.size(), rep, top);
+        return;
+    }
+    if (!strcmp(n, "SetVertexShader")) g_inst_state[0] = Arg(c, 1);
+    else if (!strcmp(n, "SetPixelShader")) g_inst_state[1] = Arg(c, 1);
+    else if (!strcmp(n, "SetIndices")) g_inst_state[2] = Arg(c, 1);
+    else if (!strcmp(n, "SetStreamSource") && Arg(c, 1) == 0) { g_inst_state[3] = Arg(c, 2); g_inst_state[4] = Arg(c, 3); }
+    else if (!strcmp(n, "SetTexture") && Arg(c, 1) < 4) g_inst_state[5 + Arg(c, 1)] = Arg(c, 2);
+    else if (!strcmp(n, "DrawIndexedPrimitive")) {
+        g_inst_state[9] = Arg(c, 2); g_inst_state[10] = Arg(c, 5); g_inst_state[11] = Arg(c, 6);  // base vertex, start, prims
+        ++g_inst_draws;
+        if (!memcmp(g_inst_state, g_inst_last, sizeof g_inst_state)) ++g_inst_same;
+        else if (g_inst_state[2] == g_inst_last[2] && g_inst_state[3] == g_inst_last[3] && g_inst_state[10] == g_inst_last[10]) ++g_inst_sameprev_mesh;
+        memcpy(g_inst_last, g_inst_state, sizeof g_inst_state);
+        ++g_inst_mesh[uint64_t(g_inst_state[3]) << 32 ^ g_inst_state[2] ^ uint64_t(g_inst_state[10]) << 12 ^ g_inst_state[9]];
+    }
+}
+bool g_api_timed;  // api_stats = 4: CPU time spent inside each method
+uint64_t g_api_ns[kApiSlots];
 template <size_t N> void ApiCounted(Ctx* c) {
     ++g_api_calls[N];
     if (g_api_trace) ApiTrace(N, c);
+    if (g_inst_on) InstNote(N, c);
+    if (g_red_on) RedHook(N, c);
+    if (!g_api_timed) { g_api_fn[N](c); return; }
+    timespec a{}, b{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &a);
     g_api_fn[N](c);
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &b);
+    g_api_ns[N] += uint64_t(b.tv_sec - a.tv_sec) * 1000000000ull + uint64_t(b.tv_nsec) - uint64_t(a.tv_nsec);
 }
 template <size_t... N> constexpr std::array<ImportFn, sizeof...(N)> ApiTable(std::index_sequence<N...>) {
     return {&ApiCounted<N>...};
@@ -2480,13 +2561,32 @@ void ApiLog(uint64_t frame) {
         if (g_api_calls[k]) v.push_back({g_api_calls[k], k});
     std::sort(v.rbegin(), v.rend());
     std::string line;
+    g_api_timed = mode == 4;
     for (auto& [n, k] : v) {
         char b[96];
-        snprintf(b, sizeof b, " %s %.1f", g_api_name[k], n / frames);
+        if (mode == 4) snprintf(b, sizeof b, " %s %.1f (%.2f ms)", g_api_name[k], n / frames, g_api_ns[k] / 1e6 / frames);
+        else snprintf(b, sizeof b, " %s %.1f", g_api_name[k], n / frames);
         line += b;
         g_api_calls[k] = 0;
+        g_api_ns[k] = 0;
     }
     Log("api per frame:%s", line.c_str());
+    if (mode == 3) {
+        if (g_red_on) {
+            std::string r;
+            for (int i = 0; i < 10; ++i) {
+                char b[48];
+                snprintf(b, sizeof b, " %s %.0f/%.0f", kRedName[i], g_red[i] / frames, g_red_all[i] / frames);
+                r += b;
+                g_red[i] = g_red_all[i] = 0;
+            }
+            Log("api redundant per frame (same value as set):%s", r.c_str());
+        }
+        g_red_on = true;
+    }
+    if (mode == 3) {  // record the next whole frame (InstNote logs it at Present)
+        g_inst_on = true; g_inst_armed = false;
+    }
     if (mode == 2) { g_api_trace = true; g_trace_draws = 0; }
 }
 
