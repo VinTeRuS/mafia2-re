@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <pthread.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <fstream>
@@ -172,22 +173,33 @@ std::string HostPath(const char* win_path) {
             host = user;
             rest = rest.substr(sizeof(kUser) - 1);
         }
-        // game_voice = 1: the archives of pc\sds_ru come from pc\sds_ru_en (a fan pack with the English speech and
-        // Russian text) when that folder is there; the original stays untouched.
+        // Language packs: the game's archives of pc\sds_ru are read from another folder when it is there.
+        //   game_lang = 1: pc\sds_en (English text and speech, from an English install);
+        //   else game_voice = 1: pc\sds_ru_en (fan pack: English speech, Russian text).
+        // The original stays untouched; the game only ever sees sds_ru (FindFirstFileA hides the other sds_* folders).
         static const char kRu[] = "\\pc\\sds_ru";
-        static const bool en_voice = [] {
-            if (SettingInt("game_voice", 0) != 1) return false;
-            struct stat st{};
-            const bool ok = stat((std::string(g_game_dir) + "/pc/sds_ru_en").c_str(), &st) == 0 && S_ISDIR(st.st_mode);
-            Log("game_voice: English speech %s", ok ? "from pc/sds_ru_en" : "asked for, but pc/sds_ru_en is missing");
-            return ok;
+        static const std::string lang_dir = [] {
+            auto has = [](const char* d) {
+                struct stat st{};
+                return stat((std::string(g_game_dir) + "/pc/" + d).c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+            };
+            std::string d;
+            if (SettingInt("game_lang", 0) == 1) {
+                if (has("sds_en")) d = "sds_en";
+                else Log("game_lang: English asked for, but pc/sds_en is missing");
+            }
+            if (d.empty() && SettingInt("game_voice", 0) == 1) {
+                if (has("sds_ru_en")) d = "sds_ru_en";
+                else Log("game_voice: English speech asked for, but pc/sds_ru_en is missing");
+            }
+            if (!d.empty()) Log("language: pc/sds_ru read from pc/%s", d.c_str());
+            return d;
         }();
-        if (en_voice && strncasecmp(rest.c_str(), kRu, sizeof(kRu) - 1) == 0 &&
-            (rest.size() == sizeof(kRu) - 1 || rest[sizeof(kRu) - 1] == '\\'))
-        {
-            rest = "\\pc\\sds_ru_en" + rest.substr(sizeof(kRu) - 1);
+        if (!lang_dir.empty() && strncasecmp(rest.c_str(), kRu, sizeof(kRu) - 1) == 0 &&
+            (rest.size() == sizeof(kRu) - 1 || rest[sizeof(kRu) - 1] == '\\')) {
+            rest = "\\pc\\" + lang_dir + rest.substr(sizeof(kRu) - 1);
             static std::atomic<bool> logged{false};
-            if (!logged.exchange(true)) Log("game_voice: first file %s", rest.c_str());
+            if (!logged.exchange(true)) Log("language: first file %s", rest.c_str());
         }
     } else {
         host = HostRootFor(full[0]);
@@ -1294,6 +1306,13 @@ K(FindFirstFileA) {
         while (dirent* e = readdir(d)) f->names.push_back(e->d_name);
         closedir(d);
     }
+    // The language packs next to pc/sds_ru (sds_ru_en, sds_en: see HostPath) are not separate languages for the game:
+    // with sds_ru there, the other sds_* folders of pc are hidden.
+    if (f->dir == std::string(g_game_dir) + "/pc" &&
+        std::any_of(f->names.begin(), f->names.end(), [](const std::string& n) { return strcasecmp(n.c_str(), "sds_ru") == 0; }))
+        f->names.erase(std::remove_if(f->names.begin(), f->names.end(), [](const std::string& n) {
+            return strncasecmp(n.c_str(), "sds_", 4) == 0 && strcasecmp(n.c_str(), "sds_ru") != 0;
+        }), f->names.end());
     if (!FindNextMatch(f, Arg(c, 1))) {
         if (trace_find) Log("  not found: dir %s (%zu entries) pattern %s errno %d", f->dir.c_str(), f->names.size(), f->pattern.c_str(), errno);
         delete f;

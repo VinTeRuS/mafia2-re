@@ -178,8 +178,9 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
                 new int[] {0, 1, 2}, true),
         new Setting("Язык", "ui_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, false),
         new Setting("Озвучка", "game_voice", new String[] {"Русская", "Английская"}, new int[] {0, 1}, true),
+        new Setting("Язык игры", "game_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, true),
     };
-    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0};  // -1: from the phone's language
+    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 0};  // -1: from the phone's language
     private static final int LANG = 13;
 
     // ---- interface language: strings are written in Russian and looked up here for English ----
@@ -193,7 +194,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             "Вибрация", "Vibration", "Показывать FPS", "Show FPS", "Скрывать с геймпадом", "Hide with a gamepad",
             "Бег от края стика", "Run at the stick's edge", "Скорость камеры", "Camera speed",
             "Инверсия Y", "Invert Y", "Графика игры", "Game graphics", "Низкая", "Low", "Средняя", "Medium",
-            "Высокая", "High", "Язык", "Language", "Озвучка", "Voice", "Русская", "Russian", "Английская", "English",
+            "Высокая", "High", "Язык", "Language", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
             "НАСТРОЙКИ", "SETTINGS", "РАСКЛАДКА", "LAYOUT", "ЗАКРЫТЬ", "CLOSE", "ПЕРЕЗАПУСК", "RESTART",
             "* после перезапуска", "* applies after restart", "СБРОС", "RESET", "ГОТОВО", "DONE", "СТИК", "STICK",
             "Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер",
