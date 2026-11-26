@@ -18,8 +18,22 @@ If you like the port, you can support me on Patreon: **[patreon.com/VinTeRuS](ht
 - Settings (gear button): resolution, texture quality, FPS limit, game graphics preset, battery saver, button size
   and opacity, vibration, camera speed, invert Y.
 - Tested on a Pixel 6 (Mali-G78) only.
-- Known problems: the GPU is the limit on phones, so heavy scenes (the city at night, big fights) drop frames; no
-  multiplayer yet.
+- Known problems: heavy scenes (the city at night, big fights) drop frames; no multiplayer yet.
+
+## Performance and weak phones
+
+This is a 2010 PC game that was never made for phones, and the port runs it without the original source code: every
+x86 instruction of a 22 MB exe is translated to C, D3D9 goes through DXVK to Vulkan, PhysX and APEX run recompiled
+on the CPU. The game issues 3 000-5 000 draw calls a frame and simulates a whole city on 2-3 CPU cores; on a phone
+both the CPU and the GPU are at their limit.
+
+- On a Pixel 6 the game's built-in benchmark gives about 35 fps on average, with drops to 15-20 fps in heavy scenes.
+  After 10-15 minutes the phone heats up and gets ~20% slower.
+- **On weaker phones the game may run badly or not start at all.** Roughly: a phone slower than a Pixel 6 (older or
+  mid-range chips, less than 8 GB of RAM) will likely be unplayable, and devices with 4-6 GB of RAM may crash from
+  running out of memory. Lower the resolution, textures and the game graphics preset in the settings first.
+- Only one phone has been tested; other GPUs (Adreno, PowerVR, Xclipse) may show bugs or glitches no one has seen
+  yet. Reports with the phone model and the log (`files/mafia2-native.log`) are welcome.
 
 ## Installing
 
