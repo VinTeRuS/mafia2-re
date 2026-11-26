@@ -241,7 +241,7 @@ void VulkanDriverCrashed() {
     if (!g_turnip_pending) return;
     int fd = open(kFailed, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) return;
-    static const char reason[] = "\nthe game crashed during startup on Turnip (see proto-native.prev.log)\n";
+    static const char reason[] = "\nthe game crashed during startup on Turnip (see mafia2-native.prev.log)\n";
     (void)!write(fd, kBuild, strlen(kBuild));
     (void)!write(fd, reason, sizeof(reason) - 1);
     close(fd);
@@ -260,7 +260,10 @@ void SelectVulkanDriver() {
     } else if (std::string why = FailedBefore(); !why.empty()) {
         Log("vulkan: Turnip failed here before: %s", why.c_str());
         std::string device;
-        if (SystemDriverApi(device) >= VK_API_VERSION_1_3) {
+        // Adreno 8xx: Qualcomm's driver reports Vulkan 1.3 but cannot run DXVK (see below), so a Turnip failure must
+        // not lock these phones onto it: Turnip is tried again at every start.
+        const bool system_unusable = GpuModel().rfind("Adreno8", 0) == 0;
+        if (!system_unusable && SystemDriverApi(device) >= VK_API_VERSION_1_3) {
             Log("vulkan: using the system driver (vulkan_driver = turnip forces Turnip)");
             return;
         }
@@ -270,6 +273,12 @@ void SelectVulkanDriver() {
     // a black screen), while Turnip from Mesa 26.3 knows these GPUs; so Turnip is tried first like elsewhere.
     const std::string model = GpuModel();
     if (!model.empty()) Log("vulkan: GPU %s", model.c_str());
+    // Adreno 825 runs on Turnip's Adreno 829 entry (port patch in Mesa 26.3); GMEM rendering is reported broken on
+    // that core in community Turnip builds, so it draws in system memory (slower, but correct).
+    if (model == "Adreno825") {
+        setenv("TU_DEBUG", "sysmem", 0);
+        Log("vulkan: Adreno 825: Turnip with TU_DEBUG=%s", getenv("TU_DEBUG"));
+    }
     const char* libdir = getenv("MAFIA2RE_NATIVE_LIB_DIR");  // set by GameActivity: the APK's extracted libraries
     if (!libdir) {
         LogSystemDevice();
