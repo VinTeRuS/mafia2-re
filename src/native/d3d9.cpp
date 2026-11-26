@@ -2481,11 +2481,10 @@ template <size_t N> void ApiCounted(Ctx* c) {
     if (g_inst_on) InstNote(N, c);
     if (g_red_on) RedHook(N, c);
     if (!g_api_timed) { g_api_fn[N](c); return; }
-    timespec a{}, b{};
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &a);
+    // wall clock (vDSO, ~20 ns) instead of thread CPU time (a syscall that added ~0.5 us a call)
+    const auto a = std::chrono::steady_clock::now();
     g_api_fn[N](c);
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &b);
-    g_api_ns[N] += uint64_t(b.tv_sec - a.tv_sec) * 1000000000ull + uint64_t(b.tv_nsec) - uint64_t(a.tv_nsec);
+    g_api_ns[N] += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - a).count());
 }
 template <size_t... N> constexpr std::array<ImportFn, sizeof...(N)> ApiTable(std::index_sequence<N...>) {
     return {&ApiCounted<N>...};
