@@ -172,6 +172,23 @@ std::string HostPath(const char* win_path) {
             host = user;
             rest = rest.substr(sizeof(kUser) - 1);
         }
+        // game_voice = 1: the archives of pc\sds_ru come from pc\sds_ru_en (a fan pack with the English speech and
+        // Russian text) when that folder is there; the original stays untouched.
+        static const char kRu[] = "\\pc\\sds_ru";
+        static const bool en_voice = [] {
+            if (SettingInt("game_voice", 0) != 1) return false;
+            struct stat st{};
+            const bool ok = stat((std::string(g_game_dir) + "/pc/sds_ru_en").c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+            Log("game_voice: English speech %s", ok ? "from pc/sds_ru_en" : "asked for, but pc/sds_ru_en is missing");
+            return ok;
+        }();
+        if (en_voice && strncasecmp(rest.c_str(), kRu, sizeof(kRu) - 1) == 0 &&
+            (rest.size() == sizeof(kRu) - 1 || rest[sizeof(kRu) - 1] == '\\'))
+        {
+            rest = "\\pc\\sds_ru_en" + rest.substr(sizeof(kRu) - 1);
+            static std::atomic<bool> logged{false};
+            if (!logged.exchange(true)) Log("game_voice: first file %s", rest.c_str());
+        }
     } else {
         host = HostRootFor(full[0]);
         rest = full.substr(2);
