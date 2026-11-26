@@ -273,11 +273,12 @@ void SelectVulkanDriver() {
     // a black screen), while Turnip from Mesa 26.3 knows these GPUs; so Turnip is tried first like elsewhere.
     const std::string model = GpuModel();
     if (!model.empty()) Log("vulkan: GPU %s", model.c_str());
-    // Adreno 825 runs on Turnip's Adreno 829 entry (port patch in Mesa 26.3); GMEM rendering is reported broken on
-    // that core in community Turnip builds, so it draws in system memory (slower, but correct).
-    if (model == "Adreno825") {
+    // Adreno 825 runs on Turnip's Adreno 829 entry, Adreno 810 on its own entry with the KGSL chip id added (port
+    // patches in Mesa 26.3); GMEM rendering is reported broken on both in community Turnip builds, so they draw in
+    // system memory (slower, but correct).
+    if (model == "Adreno825" || model == "Adreno810") {
         setenv("TU_DEBUG", "sysmem", 0);
-        Log("vulkan: Adreno 825: Turnip with TU_DEBUG=%s", getenv("TU_DEBUG"));
+        Log("vulkan: %s: Turnip with TU_DEBUG=%s", model.c_str(), getenv("TU_DEBUG"));
     }
     const char* libdir = getenv("MAFIA2RE_NATIVE_LIB_DIR");  // set by GameActivity: the APK's extracted libraries
     if (!libdir) {
