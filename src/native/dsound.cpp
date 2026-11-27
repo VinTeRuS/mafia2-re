@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -67,6 +68,13 @@ std::vector<std::unique_ptr<Buffer>> g_buffers;  // index 0 unused (the IDirectS
 uint32_t g_vtable_ds = 0, g_vtable_buf = 0, g_vtable_notify = 0, g_vtable_3dl = 0, g_vtable_3db = 0, g_listener3d = 0;
 SDL_AudioDeviceID g_device = 0;
 int g_out_rate = 48000;
+
+// Movie (Bink) sound: the game leaves it to binkw32, so bink.cpp decodes the tracks the game asked for and queues them
+// here as stereo frames at the device rate (one queue per track), summed into the output by Mix.
+constexpr int kMovieTracks = 4;
+std::mutex g_movie_mutex;
+std::deque<float> g_movie[kMovieTracks];
+struct MovieResampler { double phase = 0; float l = 0, r = 0; } g_movie_rs[kMovieTracks];
 
 Buffer* Buf(uint32_t guest) {
     uint32_t i = R32(guest + 4);
@@ -130,6 +138,14 @@ void Mix(void*, Uint8* stream, int len) {
             }
         }
         if (!b->notifies.empty()) FireBetween(*b, start, uint32_t(b->pos), wrapped);
+    }
+    {
+        std::lock_guard<std::mutex> ml(g_movie_mutex);
+        for (auto& q : g_movie) {
+            size_t n = std::min(q.size(), size_t(2 * frames));
+            for (size_t i = 0; i < n; ++i) out[i] += q[i];
+            q.erase(q.begin(), q.begin() + long(n));
+        }
     }
     float peak = 0;
     for (int i = 0; i < 2 * frames; ++i) {
@@ -531,5 +547,34 @@ const ImportDef kDsound[] = {
 ImportRegistrar g_dsound(kDsound);
 
 }  // namespace
+
+// Stereo frames of a movie track at `rate`, resampled linearly to the device rate (the interpolation runs on from
+// the previous call's last frame). At most 2 s are kept: a movie that runs ahead of the sound drops the oldest.
+void MovieAudioPush(int track, const float* st, int frames, int rate) {
+    if (track < 0 || track >= kMovieTracks || rate <= 0 || frames <= 0) return;
+    std::lock_guard<std::mutex> l(g_movie_mutex);
+    auto& q = g_movie[track];
+    auto& rs = g_movie_rs[track];
+    const double step = double(rate) / double(g_out_rate);
+    for (; rs.phase + 1 < frames; rs.phase += step) {
+        const int i = int(std::floor(rs.phase));
+        const float f = float(rs.phase - i);
+        const float l0 = i < 0 ? rs.l : st[2 * i], r0 = i < 0 ? rs.r : st[2 * i + 1];
+        q.push_back(l0 + (st[2 * (i + 1)] - l0) * f);
+        q.push_back(r0 + (st[2 * (i + 1) + 1] - r0) * f);
+    }
+    rs.phase -= frames;
+    rs.l = st[2 * (frames - 1)];
+    rs.r = st[2 * (frames - 1) + 1];
+    const size_t cap = size_t(g_out_rate) * 2 * 2;
+    if (q.size() > cap) q.erase(q.begin(), q.begin() + long(q.size() - cap));
+}
+void MovieAudioClear() {
+    std::lock_guard<std::mutex> l(g_movie_mutex);
+    for (int t = 0; t < kMovieTracks; ++t) {
+        g_movie[t].clear();
+        g_movie_rs[t] = MovieResampler{};
+    }
+}
 
 }  // namespace native

@@ -5,6 +5,7 @@
 // Audio: not played yet (the audio tracks are skipped); the video clock is the wall clock.
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cctype>
@@ -12,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "win.h"
 
@@ -24,6 +26,9 @@ extern "C" {
 #endif
 
 namespace native {
+
+void MovieAudioPush(int track, const float* stereo, int frames, int rate);  // dsound.cpp
+void MovieAudioClear();
 
 // Open full-screen movies (not the menu backgrounds), for the touch controls (m2_script.cpp, nativeGameState).
 std::atomic<int> g_movies_open{0};
@@ -43,6 +48,10 @@ struct Bink {
     AVFrame* frame = nullptr;
     AVPacket* pkt = nullptr;
     int vstream = -1;
+    // sound: up to 4 audio streams (the tracks the game asked for), each decoded into dsound's movie queue
+    AVCodecContext* adec[4] = {};
+    int astream[4] = {-1, -1, -1, -1};
+    AVFrame* aframe = nullptr;
 #endif
     uint32_t guest = 0, width = 0, height = 0, frames = 0;
     uint32_t fb_guest = 0;          // BINKFRAMEBUFFERS registered by the game
@@ -57,6 +66,7 @@ struct Bink {
 
 std::mutex g_mutex;
 std::map<uint32_t, Bink*> g_binks;
+std::vector<uint32_t> g_tracks;  // BinkSetSoundTrack: the track IDs the next BinkOpen with BINKSNDTRACK plays
 
 Bink* Find(uint32_t guest) {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -67,6 +77,31 @@ Bink* Find(uint32_t guest) {
 uint32_t Align16(uint32_t v) { return (v + 15) & ~15u; }
 
 #ifdef MAFIA2RE_FFMPEG
+// The audio packet in b->pkt, if it belongs to a played track: decoded and queued (mono goes to both sides).
+void DecodeAudio(Bink* b) {
+    for (int t = 0; t < 4; ++t) {
+        if (b->astream[t] != b->pkt->stream_index || !b->adec[t] || avcodec_send_packet(b->adec[t], b->pkt) < 0) continue;
+        std::vector<float> st;
+        while (avcodec_receive_frame(b->adec[t], b->aframe) == 0) {
+            const AVFrame* f = b->aframe;
+            const int n = f->nb_samples, nc = f->ch_layout.nb_channels;
+            const bool planar = av_sample_fmt_is_planar(AVSampleFormat(f->format));
+            const bool flt = f->format == AV_SAMPLE_FMT_FLT || f->format == AV_SAMPLE_FMT_FLTP;
+            if (nc < 1 || (!flt && f->format != AV_SAMPLE_FMT_S16 && f->format != AV_SAMPLE_FMT_S16P)) continue;
+            st.resize(size_t(2 * n));
+            for (int i = 0; i < n; ++i)
+                for (int ch = 0; ch < 2; ++ch) {
+                    const int c = ch < nc ? ch : 0;
+                    const size_t sz = flt ? 4 : 2;
+                    const uint8_t* q = planar ? f->extended_data[c] + size_t(i) * sz : f->data[0] + size_t(i * nc + c) * sz;
+                    st[size_t(2 * i + ch)] = flt ? *reinterpret_cast<const float*>(q) : *reinterpret_cast<const int16_t*>(q) / 32768.0f;
+                }
+            MovieAudioPush(t, st.data(), n, f->sample_rate);
+        }
+        return;
+    }
+}
+
 // Next video frame into b->frame (decoded in decode order); false at the end of the file.
 bool DecodeNext(Bink* b) {
     while (true) {
@@ -80,6 +115,7 @@ bool DecodeNext(Bink* b) {
             return r == 0;
         }
         if (b->pkt->stream_index == b->vstream) avcodec_send_packet(b->vdec, b->pkt);
+        else DecodeAudio(b);
         av_packet_unref(b->pkt);
     }
 }
@@ -144,6 +180,27 @@ void k_BinkOpen(Ctx* c) {  // HBINK BinkOpen(const char* name, u32 flags)
     }
     b->frame = av_frame_alloc();
     b->pkt = av_packet_alloc();
+    // Sound, as binkw32 does it: with BINKSNDTRACK the tracks named by BinkSetSoundTrack (Mafia II: music + one
+    // language's speech), else the first track. Audio streams follow the video one; their id is the Bink track ID.
+    std::string tracks;
+    for (unsigned i = 0, t = 0, first = 1; i < b->fmt->nb_streams && t < 4; ++i) {
+        AVStream* as = b->fmt->streams[i];
+        if (as->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) continue;
+        bool want = (flags & 0x4000) ? std::find(g_tracks.begin(), g_tracks.end(), uint32_t(as->id)) != g_tracks.end() : first;
+        first = 0;
+        tracks += " " + std::to_string(as->id) + (want ? "*" : "");
+        const AVCodec* ac = want ? avcodec_find_decoder(as->codecpar->codec_id) : nullptr;
+        if (!ac) continue;
+        AVCodecContext* ad = avcodec_alloc_context3(ac);
+        if (ad && avcodec_parameters_to_context(ad, as->codecpar) >= 0 && avcodec_open2(ad, ac, nullptr) >= 0) {
+            b->adec[t] = ad;
+            b->astream[t++] = int(i);
+        } else {
+            avcodec_free_context(&ad);
+        }
+    }
+    if (b->adec[0]) b->aframe = av_frame_alloc();
+    if (!tracks.empty()) Log("BinkOpen(%s): audio tracks%s (* played)", path.c_str(), tracks.c_str());
     b->width = uint32_t(vs->codecpar->width);
     b->height = uint32_t(vs->codecpar->height);
     int64_t n = vs->nb_frames;
@@ -203,6 +260,9 @@ void k_BinkClose(Ctx* c) {
         av_frame_free(&b->frame);
         av_packet_free(&b->pkt);
         avcodec_free_context(&b->vdec);
+        for (auto*& ad : b->adec) avcodec_free_context(&ad);
+        av_frame_free(&b->aframe);
+        MovieAudioClear();
         avformat_close_input(&b->fmt);
 #endif
         HeapFree(g);
@@ -307,6 +367,12 @@ void k_BinkPause(Ctx* c) {
 
 void k_One1(Ctx* c) { Return(c, 1, 1); }
 void k_One2(Ctx* c) { Return(c, 1, 2); }
+void k_BinkSetSoundTrack(Ctx* c) {  // void BinkSetSoundTrack(u32 total_tracks, u32* track_ids)
+    const uint32_t n = Arg(c, 0), ids = Arg(c, 1);
+    g_tracks.clear();
+    for (uint32_t i = 0; ids && i < n && i < 16; ++i) g_tracks.push_back(R32(ids + 4 * i));
+    Return(c, 0, 2);
+}
 void k_One3(Ctx* c) { Return(c, 1, 3); }
 void k_Zero1(Ctx* c) { Return(c, 0, 1); }
 void k_Zero2(Ctx* c) { Return(c, 0, 2); }
@@ -322,7 +388,7 @@ const ImportDef kBink[] = {
     {"binkw32.dll", "_BinkPause@8", k_BinkPause},
     {"binkw32.dll", "_BinkShouldSkip@4", k_Zero1},
     {"binkw32.dll", "_BinkSetVolume@12", k_One3},
-    {"binkw32.dll", "_BinkSetSoundTrack@8", k_One2},
+    {"binkw32.dll", "_BinkSetSoundTrack@8", k_BinkSetSoundTrack},
     {"binkw32.dll", "_BinkGetTrackID@8", k_Zero2},
     {"binkw32.dll", "_BinkOpenDirectSound@4", k_Zero1},
     {"binkw32.dll", "_BinkSetSoundSystem@8", k_One2},
