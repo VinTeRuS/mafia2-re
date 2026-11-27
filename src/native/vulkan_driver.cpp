@@ -278,7 +278,7 @@ void SelectVulkanDriver() {
     // system memory (slower, but correct).
     // All Adreno 8xx: Mesa 26.2/26.3's GMEM path on them is young (reports of broken graphics on an Adreno 830).
     if (model.rfind("Adreno8", 0) == 0) {
-        setenv("TU_DEBUG", "sysmem", 0);
+        setenv("TU_DEBUG", "sysmem,noubwc", 0);  // noubwc: full-screen noise on an Adreno 830 with compression on
         Log("vulkan: %s: Turnip with TU_DEBUG=%s", model.c_str(), getenv("TU_DEBUG"));
     }
     const char* libdir = getenv("MAFIA2RE_NATIVE_LIB_DIR");  // set by GameActivity: the APK's extracted libraries
@@ -295,7 +295,10 @@ void SelectVulkanDriver() {
         size_t slash = path.rfind('/');
         drivers.push_back({hooks, path.substr(0, slash + 1), path.substr(slash + 1), true});
     }
-    for (const char* file : {"libvulkan_freedreno.so", "libvulkan_freedreno_next.so"}) {
+    // Adreno 8xx: the newer Mesa first (its A8xx support is younger and changes fast).
+    const bool a8 = model.rfind("Adreno8", 0) == 0;
+    for (const char* file : {a8 ? "libvulkan_freedreno_next.so" : "libvulkan_freedreno.so",
+                             a8 ? "libvulkan_freedreno.so" : "libvulkan_freedreno_next.so"}) {
         if (access((hooks + file).c_str(), F_OK) == 0) drivers.push_back({hooks, hooks, file, false});
     }
     PFN_vkGetInstanceProcAddr gipa = nullptr;
