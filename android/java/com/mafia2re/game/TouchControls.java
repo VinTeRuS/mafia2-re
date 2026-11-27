@@ -191,8 +191,9 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Setting("Язык игры", "game_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, true),
         new Setting("Прицел", "ui_aim_toggle", new String[] {"Удержание", "Переключение"}, new int[] {0, 1}, false),
         new Setting("Гироскоп", "ui_gyro", new String[] {"Выкл", "При прицеливании", "Всегда"}, new int[] {0, 1, 2}, false),
+        new Setting("Ткань", "cloth_iterations", new String[] {"Авто", "Высокая", "Средняя", "Низкая"}, new int[] {-1, 0, 3, 2}, true),
     };
-    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 1, 1, 0};  // -1: from the phone's language
+    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 1, 1, 0, 0};  // -1: from the phone's language
     private static final int LANG = 13, AIM_TOGGLE = 16, GYRO = 17;
     // Aim as a switch (setting "Прицел"): one tap holds the right mouse button, the next releases it, so the camera
     // and fire can be used with the other fingers.
@@ -254,7 +255,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             "Вибрация", "Vibration", "Показывать FPS", "Show FPS", "Скрывать с геймпадом", "Hide with a gamepad",
             "Бег от края стика", "Run at the stick's edge", "Скорость камеры", "Camera speed",
             "Инверсия Y", "Invert Y", "Графика игры", "Game graphics", "Низкая", "Low", "Средняя", "Medium",
-            "Высокая", "High", "Язык", "Language", "Прицел", "Aim", "Гироскоп", "Gyro aim", "При прицеливании", "While aiming", "Всегда", "Always", "Удержание", "Hold", "Переключение", "Toggle", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
+            "Высокая", "High", "Язык", "Language", "Прицел", "Aim", "Гироскоп", "Gyro aim", "Ткань", "Cloth physics", "Авто", "Auto", "Высокая", "High", "При прицеливании", "While aiming", "Всегда", "Always", "Удержание", "Hold", "Переключение", "Toggle", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
             "НАСТРОЙКИ", "SETTINGS", "РАСКЛАДКА", "LAYOUT", "ЗАКРЫТЬ", "CLOSE", "ПЕРЕЗАПУСК", "RESTART",
             "* после перезапуска", "* applies after restart", "СБРОС", "RESET", "ГОТОВО", "DONE", "СТИК", "STICK",
             "Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер",

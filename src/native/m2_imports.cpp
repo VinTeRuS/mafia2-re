@@ -617,7 +617,10 @@ extern "C" void Hook_ClothSolve(Ctx* c) {
 #else
     static const int detail = native::SettingInt("game_detail", -1);
 #endif
-    static const int cap = native::SettingInt("cloth_iterations", detail == 0 ? 2 : detail == 1 ? 3 : 0);
+    static const int cap = [] {  // -1 / missing: by game_detail ("Ткань: Авто" in the settings panel)
+        const int v = native::SettingInt("cloth_iterations", -1);
+        return v >= 0 ? v : detail == 0 ? 2 : detail == 1 ? 3 : 0;
+    }();
     if (cap <= 0 || !c->ecx) return;
     const uint32_t iters = R32(c->ecx + 0x80);
     if (iters <= uint32_t(cap)) return;
