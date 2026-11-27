@@ -276,7 +276,8 @@ void SelectVulkanDriver() {
     // Adreno 825 runs on Turnip's Adreno 829 entry, Adreno 810 on its own entry with the KGSL chip id added (port
     // patches in Mesa 26.3); GMEM rendering is reported broken on both in community Turnip builds, so they draw in
     // system memory (slower, but correct).
-    if (model == "Adreno825" || model == "Adreno810") {
+    // All Adreno 8xx: Mesa 26.2/26.3's GMEM path on them is young (reports of broken graphics on an Adreno 830).
+    if (model.rfind("Adreno8", 0) == 0) {
         setenv("TU_DEBUG", "sysmem", 0);
         Log("vulkan: %s: Turnip with TU_DEBUG=%s", model.c_str(), getenv("TU_DEBUG"));
     }
