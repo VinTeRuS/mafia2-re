@@ -607,12 +607,23 @@ extern "C" void Hook_RendererSetup(Ctx* c) {
     if (gpus != 1) native::Log("renderer: GPU count %u -> 1 (keeps the game's shadow map cache on)", gpus);
     W32(device + 0x2040, 1);
 }
-// Cloth::solve (f_10005230, thiscall): the cost is linear in solverIterations ([this+0x80], default 5). Setting
-// cloth_iterations (0 = the game's value) caps it, like NpCloth::setSolverIterations would.
+// Cloth::solve (f_10005230, thiscall): the cloth solver was a third of the CPU time in the benchmark, linear in
+// solverIterations ([this+0x80], default 5). Setting cloth_iterations (0 = the game's value) caps it, like
+// NpCloth::setSolverIterations would; without it game_detail picks: low 2, medium 3, high the game's 5
+// (PC bench: 25.5 fps -> 29.4 at 3, 30.1 at 2).
 extern "C" void Hook_ClothSolve(Ctx* c) {
-    static const int cap = native::SettingInt("cloth_iterations", 0);
+#ifdef __ANDROID__
+    static const int detail = native::SettingInt("game_detail", 0);
+#else
+    static const int detail = native::SettingInt("game_detail", -1);
+#endif
+    static const int cap = native::SettingInt("cloth_iterations", detail == 0 ? 2 : detail == 1 ? 3 : 0);
     if (cap <= 0 || !c->ecx) return;
-    if (R32(c->ecx + 0x80) > uint32_t(cap)) W32(c->ecx + 0x80, uint32_t(cap));
+    const uint32_t iters = R32(c->ecx + 0x80);
+    if (iters <= uint32_t(cap)) return;
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true)) native::Log("cloth: solver iterations %u -> %d (cloth_iterations / game_detail)", iters, cap);
+    W32(c->ecx + 0x80, uint32_t(cap));
 }
 // NxScene::createCloth(const NxClothDesc& desc): safety net against NaN poses (once caused by the recompiler dropping
 // flags at ret). A NaN globalPose makes PhysX reject the cloth, so it is replaced by identity and
