@@ -128,6 +128,11 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Button("ВЫЙТИ", "exit", KeyEvent.KEYCODE_F, 0, true, 62, true, 162, 20, CAR),
         new Button("СИГНАЛ", "horn", KeyEvent.KEYCODE_E, 0, true, 240, true, 104, 17, CAR),
         new Button("ЛИМИТ", "limiter", KeyEvent.KEYCODE_L, 0, true, 182, true, 200, 17, CAR),
+        // menus: arrow keys (the game's menus take them like a keyboard), next to the cursor
+        new Button("ВВЕРХ", "up", KeyEvent.KEYCODE_DPAD_UP, 0, false, 120, true, 190, 26, MENU),
+        new Button("ВНИЗ", "down", KeyEvent.KEYCODE_DPAD_DOWN, 0, false, 120, true, 70, 26, MENU),
+        new Button("ВЛЕВО", "left", KeyEvent.KEYCODE_DPAD_LEFT, 0, false, 60, true, 130, 26, MENU),
+        new Button("ВПРАВО", "right", KeyEvent.KEYCODE_DPAD_RIGHT, 0, false, 180, true, 130, 26, MENU),
     };
 
     // ---- settings ----
@@ -256,7 +261,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             "Drag the buttons and the stick, tap one to resize it",
             "Поддержать на Patreon", "Support on Patreon", "АВТО", "CAR", "ИГРА", "GAME", "МЕНЮ", "MENU",
             "ПАУЗА", "PAUSE", "ОК", "OK", "КАРТА", "MAP", "ОРУЖИЕ", "WEAPON", "ЕЩЁ", "MORE", "ГРАНАТА", "GRENADE",
-            "ПРИСЕД", "CROUCH", "БЕГ", "RUN", "ОГОНЬ", "FIRE", "ПРИЦЕЛ", "AIM", "ДЕЙСТВИЕ", "ACTION",
+            "ПРИСЕД", "CROUCH", "БЕГ", "RUN", "ОГОНЬ", "FIRE", "ПРИЦЕЛ", "AIM", "ВВЕРХ", "UP", "ВНИЗ", "DOWN", "ВЛЕВО", "LEFT", "ВПРАВО", "RIGHT", "ДЕЙСТВИЕ", "ACTION",
             "ПРЫЖОК", "JUMP", "СЕСТЬ", "ENTER CAR", "УКРЫТИЕ", "COVER", "ОБОЙМА", "RELOAD", "УДАР", "PUNCH",
             "РУЧНИК", "HANDBRAKE", "ВЫЙТИ", "EXIT CAR", "СИГНАЛ", "HORN", "ЛИМИТ", "LIMITER",
         };
@@ -1183,6 +1188,13 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
                 c.drawLine(x, y + s * 0.15f, x + s * 0.55f, y - s * 0.4f, p);
                 c.drawLine(x - s * 0.9f, y + s * 0.6f, x + s * 0.9f, y + s * 0.6f, p);
                 break;
+            case "up": case "down": case "left": case "right": {  // a chevron pointing that way
+                float dx = icon.equals("left") ? -1 : icon.equals("right") ? 1 : 0, dy = icon.equals("up") ? -1 : icon.equals("down") ? 1 : 0;
+                float tx = x + dx * s * 0.45f, ty = y + dy * s * 0.45f;
+                c.drawLine(tx, ty, tx - dx * s * 0.6f - dy * s * 0.6f, ty - dy * s * 0.6f - dx * s * 0.6f, p);
+                c.drawLine(tx, ty, tx - dx * s * 0.6f + dy * s * 0.6f, ty - dy * s * 0.6f + dx * s * 0.6f, p);
+                break;
+            }
             default:
                 break;
         }
