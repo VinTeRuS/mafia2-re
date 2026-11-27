@@ -15,4 +15,4 @@ NATIVE_OVERRIDES = {0x101e19c0, 0x101e1ea0}  # memcpy/memmove (Native_<va>, src/
 TRACE_HOOKS = True
 
 # NxScene::createCloth(const NxClothDesc&): the game hands it a desc whose globalPose is NaN (see src/native/m2_imports.cpp)
-PRE_HOOKS = {0x100e9740: "Hook_PxCreateCloth"}
+PRE_HOOKS = {0x100e9740: "Hook_PxCreateCloth", 0x10005230: "Hook_ClothSolve"}

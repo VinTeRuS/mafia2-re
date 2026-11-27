@@ -607,6 +607,13 @@ extern "C" void Hook_RendererSetup(Ctx* c) {
     if (gpus != 1) native::Log("renderer: GPU count %u -> 1 (keeps the game's shadow map cache on)", gpus);
     W32(device + 0x2040, 1);
 }
+// Cloth::solve (f_10005230, thiscall): the cost is linear in solverIterations ([this+0x80], default 5). Setting
+// cloth_iterations (0 = the game's value) caps it, like NpCloth::setSolverIterations would.
+extern "C" void Hook_ClothSolve(Ctx* c) {
+    static const int cap = native::SettingInt("cloth_iterations", 0);
+    if (cap <= 0 || !c->ecx) return;
+    if (R32(c->ecx + 0x80) > uint32_t(cap)) W32(c->ecx + 0x80, uint32_t(cap));
+}
 // NxScene::createCloth(const NxClothDesc& desc): safety net against NaN poses (once caused by the recompiler dropping
 // flags at ret). A NaN globalPose makes PhysX reject the cloth, so it is replaced by identity and
 // logged; it has not fired since that fix.
