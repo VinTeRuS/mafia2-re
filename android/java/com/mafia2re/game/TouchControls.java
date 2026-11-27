@@ -14,7 +14,12 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.input.InputManager;
+import android.view.Surface;
 import android.view.HapticFeedbackConstants;
 import android.os.Build;
 import android.view.InputDevice;
@@ -45,7 +50,7 @@ import java.util.Map;
  * The gear opens the settings panel; from there the layout editor lets the player drag every control to where
  * their thumbs rest. The performance overlay shows FPS, frame time and memory.
  */
-public class TouchControls extends View implements InputManager.InputDeviceListener {
+public class TouchControls extends View implements InputManager.InputDeviceListener, SensorEventListener {
     // Performance counters and the frame limiter of the native host (main.cpp).
     static native float nativeFps();
     static native float nativeFrameMs();
@@ -180,12 +185,58 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Setting("Озвучка", "game_voice", new String[] {"Русская", "Английская"}, new int[] {0, 1}, true),
         new Setting("Язык игры", "game_lang", new String[] {"Русский", "English"}, new int[] {0, 1}, true),
         new Setting("Прицел", "ui_aim_toggle", new String[] {"Удержание", "Переключение"}, new int[] {0, 1}, false),
+        new Setting("Гироскоп", "ui_gyro", new String[] {"Выкл", "При прицеливании", "Всегда"}, new int[] {0, 1, 2}, false),
     };
-    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 1, 1};  // -1: from the phone's language
-    private static final int LANG = 13, AIM_TOGGLE = 16;
+    private static final int[] DEFAULTS = {0, 2, 0, 0, 2, 1, 1, 0, 0, 1, 2, 0, 0, -1, 0, 1, 1, 0};  // -1: from the phone's language
+    private static final int LANG = 13, AIM_TOGGLE = 16, GYRO = 17;
     // Aim as a switch (setting "Прицел"): one tap holds the right mouse button, the next releases it, so the camera
     // and fire can be used with the other fingers.
     private boolean aimToggle, aimLatched;
+
+    // Gyro aim (setting "Гироскоп": off / while aiming / always): the phone's turn rate moves the camera like a drag,
+    // through the same camera speed and invert Y. The sensor runs only while the controls are on screen and it is on.
+    private int gyroMode;
+    private boolean gyroOn;
+    private long gyroLast;
+
+    private void updateGyro() {
+        SensorManager sm = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+        Sensor gyro = sm == null ? null : sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        boolean want = gyro != null && gyroMode != 0 && getWindowVisibility() == VISIBLE;
+        if (want == gyroOn) return;
+        gyroOn = want;
+        gyroLast = 0;
+        if (want) sm.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME);
+        else sm.unregisterListener(this);
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        updateGyro();
+    }
+
+    private boolean aiming() {
+        if (aimLatched) return true;
+        for (Button b : buttons) if ("aim".equals(b.icon) && b.pointer >= 0) return true;
+        return false;
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent e) {
+        long last = gyroLast;
+        gyroLast = e.timestamp;
+        if (last == 0 || !gameMode || panelOpen || (gyroMode == 1 && !aiming())) return;
+        float dt = Math.min((e.timestamp - last) * 1e-9f, 0.1f);
+        // device axes to the landscape screen's: rotation 90 has the device's top on the left, 270 on the right
+        boolean r270 = getDisplay() != null && getDisplay().getRotation() == Surface.ROTATION_270;
+        float aroundRight = r270 ? -e.values[1] : e.values[1], aroundUp = r270 ? e.values[0] : -e.values[0];
+        float g = 800f * camGain * dt;  // pixels a radian, like a fast drag
+        mouseMoveBy(-aroundUp * g, -aroundRight * g * (invertY ? -1 : 1));
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
     // ---- interface language: strings are written in Russian and looked up here for English ----
     private static boolean english;
@@ -198,7 +249,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             "Вибрация", "Vibration", "Показывать FPS", "Show FPS", "Скрывать с геймпадом", "Hide with a gamepad",
             "Бег от края стика", "Run at the stick's edge", "Скорость камеры", "Camera speed",
             "Инверсия Y", "Invert Y", "Графика игры", "Game graphics", "Низкая", "Low", "Средняя", "Medium",
-            "Высокая", "High", "Язык", "Language", "Прицел", "Aim", "Удержание", "Hold", "Переключение", "Toggle", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
+            "Высокая", "High", "Язык", "Language", "Прицел", "Aim", "Гироскоп", "Gyro aim", "При прицеливании", "While aiming", "Всегда", "Always", "Удержание", "Hold", "Переключение", "Toggle", "Озвучка", "Voice", "Язык игры", "Game language", "Русская", "Russian", "Английская", "English",
             "НАСТРОЙКИ", "SETTINGS", "РАСКЛАДКА", "LAYOUT", "ЗАКРЫТЬ", "CLOSE", "ПЕРЕЗАПУСК", "RESTART",
             "* после перезапуска", "* applies after restart", "СБРОС", "RESET", "ГОТОВО", "DONE", "СТИК", "STICK",
             "Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер",
@@ -372,6 +423,8 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         invertY = settings[11].value() != 0;
         english = settings[LANG].value() == 1;
         aimToggle = settings[AIM_TOGGLE].value() == 1;
+        gyroMode = settings[GYRO].value();
+        updateGyro();
         layoutButtons(getWidth(), getHeight());
     }
 
