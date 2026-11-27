@@ -47,6 +47,14 @@ inline std::string ProbeDevice(PFN_vkGetInstanceProcAddr gipa, const char* drive
         VkPhysicalDeviceProperties p;
         props(device, &p);
         name = p.deviceName;
+        // Mesa 26 names Adreno 8xx "Adreno (TM) 830", without "Turnip": recognise Turnip by its driver ID instead.
+        auto props2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(gipa(instance, "vkGetPhysicalDeviceProperties2"));
+        if (props2 && name.find("Turnip") == std::string::npos) {
+            VkPhysicalDeviceDriverProperties drv{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+            VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &drv};
+            props2(device, &p2);
+            if (drv.driverID == VK_DRIVER_ID_MESA_TURNIP) name = "Turnip " + name;
+        }
         if (api_version) *api_version = p.apiVersion;
         snprintf(line, sizeof(line), "vulkan: %s sees %s (Vulkan %u.%u.%u, driver %08x, vendor %04x device %08x)",
                  driver, p.deviceName, VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion),
