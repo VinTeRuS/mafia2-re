@@ -50,6 +50,16 @@ Android 10+, arm64.
 
 The APK has no game files in it: you need your own copy of the game.
 
+## Reporting bugs
+
+**Every report must include the logs**, otherwise it can't be fixed. After the problem happens, take these two files
+from `Internal storage/Android/data/com.mafia2re.game/files/` and attach them to the issue:
+
+- `mafia2-native.log` (and `mafia2-native.prev.log` if the game crashed and you restarted it)
+- `app_process64_d3d9.log`
+
+Also write your phone model, the port's version, and what you saw (a screenshot helps for graphics problems).
+
 ## Game version
 
 GOG Mafia II (the 2010 original, not the Definitive Edition), `pc/mafia2.exe` (sha256 in `re/target.sha256`). Other
