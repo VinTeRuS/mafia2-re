@@ -419,10 +419,6 @@ struct Mirror {
     void* host = nullptr;
     uint32_t offset = 0, length = 0;
     bool write_back = false;
-    // What the host buffer holds, as far as known: an unlock then writes only the chunks that differ (the game
-    // re-locks static buffers and often rewrites the same data; the writes go to slow, write-combined memory).
-    uint8_t* sent = nullptr;
-    bool sent_valid = false, whole = false;  // whole: the lock may replace anything (DISCARD/NOOVERWRITE)
 };
 std::unordered_map<void*, Mirror> g_mirrors;
 std::atomic<uint64_t> g_mirror_fills{0};
@@ -431,7 +427,6 @@ uint32_t MirrorLock(void* object, uint32_t buffer_size, uint32_t offset, uint32_
     std::shared_lock<std::shared_mutex> copying(g_copy_rw, std::defer_lock);
     uint32_t guest;
     bool fill;
-    uint8_t* sent = nullptr;
     {
         std::lock_guard<std::recursive_mutex> lock(g_mutex);
         Mirror& m = g_mirrors[object];
@@ -441,10 +436,7 @@ uint32_t MirrorLock(void* object, uint32_t buffer_size, uint32_t offset, uint32_
             m.guest = HeapAlloc(buffer_size);
             m.size = buffer_size;
             m.valid = false;
-            free(m.sent);
-            m.sent = nullptr;
         }
-        m.whole = (flags & (D3DLOCK_DISCARD | D3DLOCK_NOOVERWRITE)) != 0;
         // A discarded buffer's old contents are gone anyway: the mirror's stand in for them.
         fill = !m.valid && !(flags & D3DLOCK_DISCARD);
         m.valid = true;
@@ -453,16 +445,11 @@ uint32_t MirrorLock(void* object, uint32_t buffer_size, uint32_t offset, uint32_
         m.length = length;
         m.write_back = !(flags & D3DLOCK_READONLY);
         guest = m.guest;
-        if (fill) {
-            if (!m.sent) m.sent = static_cast<uint8_t*>(malloc(buffer_size));
-            m.sent_valid = sent = m.sent;
-            copying.lock();
-        }
+        if (fill) copying.lock();
     }
     if (fill) {  // once per buffer: the whole of it, from the mapping's start
         ShadowCopy(Ptr<void>(guest), static_cast<uint8_t*>(host) - offset, buffer_size);
         ++g_mirror_fills;
-        if (sent) memcpy(sent, Ptr<void>(guest), buffer_size);
     }
     ++g_shadow_calls;
     return guest + offset;
@@ -472,30 +459,18 @@ bool MirrorUnlock(void* object) {
     std::shared_lock<std::shared_mutex> copying(g_copy_rw, std::defer_lock);
     void* host;
     uint32_t src, length;
-    uint8_t* sent = nullptr;
     {
         std::lock_guard<std::recursive_mutex> lock(g_mutex);
         auto it = g_mirrors.find(object);
         if (it == g_mirrors.end() || !it->second.host) return false;
         Mirror& m = it->second;
-        if (m.whole) m.sent_valid = false;  // the host's contents are no longer what `sent` says
-        else if (m.sent_valid) sent = m.sent + m.offset;
         host = m.host;
         src = m.guest + m.offset;
         length = m.write_back ? m.length : 0;
         m.host = nullptr;
         if (length) copying.lock();
     }
-    if (sent) {  // only the 1 KB chunks that changed since the last write
-        const uint8_t* g = Ptr<uint8_t>(src);
-        for (uint32_t o = 0; o < length; o += 1024) {
-            uint32_t n = std::min<uint32_t>(1024, length - o);
-            if (memcmp(g + o, sent + o, n)) {
-                ShadowCopy(static_cast<uint8_t*>(host) + o, g + o, n);
-                memcpy(sent + o, g + o, n);
-            }
-        }
-    } else if (length) ShadowCopy(host, Ptr<void>(src), length);
+    if (length) ShadowCopy(host, Ptr<void>(src), length);
     return true;
 }
 
@@ -504,7 +479,6 @@ void ForgetShadows(void* object) {
     auto mirror = g_mirrors.find(object);
     if (mirror != g_mirrors.end()) {
         if (mirror->second.guest) HeapFree(mirror->second.guest);
-        free(mirror->second.sent);
         g_mirrors.erase(mirror);
     }
     for (auto it = g_shadows.lower_bound({object, 0}); it != g_shadows.end() && it->first.first == object;) {
