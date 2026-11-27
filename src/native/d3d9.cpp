@@ -419,33 +419,19 @@ struct Mirror {
     void* host = nullptr;
     uint32_t offset = 0, length = 0;
     bool write_back = false;
-    // What the host buffer holds, as far as known, as a hash per 1 KB chunk: an unlock then writes only the chunks
-    // that differ (the game re-locks static buffers and often rewrites the same data; the writes go to slow,
-    // write-combined memory). Hashes, not a copy: a copy would double the memory of every buffer.
-    uint64_t* sent = nullptr;
+    // What the host buffer holds, as far as known: an unlock then writes only the chunks that differ (the game
+    // re-locks static buffers and often rewrites the same data; the writes go to slow, write-combined memory).
+    uint8_t* sent = nullptr;
     bool sent_valid = false, whole = false;  // whole: the lock may replace anything (DISCARD/NOOVERWRITE)
 };
 std::unordered_map<void*, Mirror> g_mirrors;
 std::atomic<uint64_t> g_mirror_fills{0};
 // Returns 0 when the mirror cannot serve this lock (nested lock): the caller falls back to ShadowLock.
-// 64-bit hash of a buffer chunk (8-byte words; a tail shorter than 8 bytes byte by byte).
-uint64_t ChunkHash(const uint8_t* p, uint32_t n) {
-    uint64_t h = 0x9e3779b97f4a7c15ull ^ n;
-    uint32_t i = 0;
-    for (; i + 8 <= n; i += 8) {
-        uint64_t w;
-        memcpy(&w, p + i, 8);
-        h = (h ^ w) * 0xff51afd7ed558ccdull;
-        h ^= h >> 32;
-    }
-    for (; i < n; ++i) h = (h ^ p[i]) * 0x100000001b3ull;
-    return h ^ (h >> 29);
-}
 uint32_t MirrorLock(void* object, uint32_t buffer_size, uint32_t offset, uint32_t length, void* host, DWORD flags) {
     std::shared_lock<std::shared_mutex> copying(g_copy_rw, std::defer_lock);
     uint32_t guest;
     bool fill;
-    uint64_t* sent = nullptr;
+    uint8_t* sent = nullptr;
     {
         std::lock_guard<std::recursive_mutex> lock(g_mutex);
         Mirror& m = g_mirrors[object];
@@ -467,20 +453,16 @@ uint32_t MirrorLock(void* object, uint32_t buffer_size, uint32_t offset, uint32_
         m.length = length;
         m.write_back = !(flags & D3DLOCK_READONLY);
         guest = m.guest;
-        static const bool dedup = SettingInt("lock_dedup", 1) != 0;  // 0: every unlock writes its whole range
-        if (fill && dedup) {
-            if (!m.sent) m.sent = static_cast<uint64_t*>(malloc(sizeof(uint64_t) * (buffer_size / 1024 + 1)));
-            sent = m.sent;
-            m.sent_valid = sent != nullptr;
+        if (fill) {
+            if (!m.sent) m.sent = static_cast<uint8_t*>(malloc(buffer_size));
+            m.sent_valid = sent = m.sent;
+            copying.lock();
         }
-        if (fill) copying.lock();
     }
     if (fill) {  // once per buffer: the whole of it, from the mapping's start
         ShadowCopy(Ptr<void>(guest), static_cast<uint8_t*>(host) - offset, buffer_size);
         ++g_mirror_fills;
-        if (sent)
-            for (uint32_t o = 0; o < buffer_size; o += 1024)
-                sent[o / 1024] = ChunkHash(Ptr<uint8_t>(guest) + o, std::min<uint32_t>(1024, buffer_size - o));
+        if (sent) memcpy(sent, Ptr<void>(guest), buffer_size);
     }
     ++g_shadow_calls;
     return guest + offset;
@@ -490,36 +472,28 @@ bool MirrorUnlock(void* object) {
     std::shared_lock<std::shared_mutex> copying(g_copy_rw, std::defer_lock);
     void* host;
     uint32_t src, length;
-    uint64_t* sent = nullptr;
-    uint32_t offset = 0, size = 0, base = 0;
+    uint8_t* sent = nullptr;
     {
         std::lock_guard<std::recursive_mutex> lock(g_mutex);
         auto it = g_mirrors.find(object);
         if (it == g_mirrors.end() || !it->second.host) return false;
         Mirror& m = it->second;
         if (m.whole) m.sent_valid = false;  // the host's contents are no longer what `sent` says
-        else if (m.sent_valid) sent = m.sent;
-        offset = m.offset;
-        size = m.size;
-        base = m.guest;
+        else if (m.sent_valid) sent = m.sent + m.offset;
         host = m.host;
         src = m.guest + m.offset;
         length = m.write_back ? m.length : 0;
         m.host = nullptr;
         if (length) copying.lock();
     }
-    if (sent && length) {  // only the parts of the 1 KB buffer chunks that changed since the last write
-        // A chunk's hash covers the whole chunk of the mirror: outside the locked range the mirror already equals the
-        // host buffer, so a changed hash means changed bytes inside the range.
-        const uint8_t* mirror = Ptr<uint8_t>(base);
-        const uint32_t end = offset + length;
-        for (uint32_t k = offset / 1024; k * 1024 < end; ++k) {
-            const uint32_t c0 = k * 1024, c1 = std::min(c0 + 1024, size);
-            const uint64_t h = ChunkHash(mirror + c0, c1 - c0);
-            if (h == sent[k]) continue;
-            sent[k] = h;
-            const uint32_t a = std::max(c0, offset), b = std::min(c1, end);
-            ShadowCopy(static_cast<uint8_t*>(host) + (a - offset), mirror + a, b - a);
+    if (sent) {  // only the 1 KB chunks that changed since the last write
+        const uint8_t* g = Ptr<uint8_t>(src);
+        for (uint32_t o = 0; o < length; o += 1024) {
+            uint32_t n = std::min<uint32_t>(1024, length - o);
+            if (memcmp(g + o, sent + o, n)) {
+                ShadowCopy(static_cast<uint8_t*>(host) + o, g + o, n);
+                memcpy(sent + o, g + o, n);
+            }
         }
     } else if (length) ShadowCopy(host, Ptr<void>(src), length);
     return true;
