@@ -295,10 +295,12 @@ void SelectVulkanDriver() {
         size_t slash = path.rfind('/');
         drivers.push_back({hooks, path.substr(0, slash + 1), path.substr(slash + 1), true});
     }
-    // Adreno 8xx: the newer Mesa first (its A8xx support is younger and changes fast).
+    // Adreno 8xx: Mr. Purple's Turnip T30 (Mesa 26.3 with A8xx fixes; players reported our own builds drawing noise
+    // on Adreno 825/830 and T30 running fine) first, then the newer Mesa.
     const bool a8 = model.rfind("Adreno8", 0) == 0;
-    for (const char* file : {a8 ? "libvulkan_freedreno_next.so" : "libvulkan_freedreno.so",
-                             a8 ? "libvulkan_freedreno.so" : "libvulkan_freedreno_next.so"}) {
+    const char* order_a8[] = {"libvulkan_purple.so", "libvulkan_freedreno_next.so", "libvulkan_freedreno.so"};
+    const char* order[] = {"libvulkan_freedreno.so", "libvulkan_freedreno_next.so"};
+    for (const char* file : a8 ? std::vector<const char*>(order_a8, order_a8 + 3) : std::vector<const char*>(order, order + 2)) {
         if (access((hooks + file).c_str(), F_OK) == 0) drivers.push_back({hooks, hooks, file, false});
     }
     PFN_vkGetInstanceProcAddr gipa = nullptr;

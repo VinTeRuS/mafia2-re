@@ -97,6 +97,9 @@ of it or use its code (the host, the recompiler, the Android app, any part of it
 - not sell builds or put them behind a paywall;
 - not add game files or code generated from the game to your fork or builds.
 
+Bundled Vulkan driver for Adreno 8xx: Turnip T30 by Mr_Purple_666 (https://github.com/MrPurple666/purple-turnip), a
+build of Mesa's Turnip driver (MIT license).
+
 ## Legal
 
 The repository has no game files and no code generated from them, and the port does not bypass any DRM: you need
