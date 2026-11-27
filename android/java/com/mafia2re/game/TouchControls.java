@@ -104,14 +104,14 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
     // menus. Right thumb: FIRE in the corner, an inner arc (~100 dp around it) for the frequent keys and an outer arc
     // (~180 dp) for the rarer ones; small system keys along the top right edge, left of the gear. Keys from the game's
     // manual (MANUAL.PDF, "Управление": car F enter/exit, Space handbrake, E horn, L speed limiter).
-    private static final int FOOT = 1, CAR = 2, MENU = 4, MORE = 8;
+    private static final int FOOT = 1, CAR = 2, MENU = 4, MORE = 8, WEAP = 16;  // WEAP: the weapon row (ОРУЖИЕ open)
     private final Button[] buttons = {
         new Button("ПАУЗА", "pause", KeyEvent.KEYCODE_ESCAPE, 0, true, 92, false, 34, 17, FOOT | CAR | MENU),
         new Button("ОК", "ok", KeyEvent.KEYCODE_ENTER, 0, true, 136, false, 34, 17, MENU),
         new Button("КАРТА", "map", KeyEvent.KEYCODE_M, 0, true, 136, false, 34, 17, FOOT | CAR),
-        new Button("ОРУЖИЕ", "weapon", KeyEvent.KEYCODE_NUMPAD_8, 0, true, 180, false, 34, 17, FOOT),
+        new Button("ОРУЖИЕ", "weapon", 0, 0, true, 180, false, 34, 17, FOOT | CAR),
         new Button("ЕЩЁ", "more", 0, 0, true, 224, false, 34, 17, FOOT),
-        new Button("ГРАНАТА", "grenade", KeyEvent.KEYCODE_1, 0, true, 224, false, 78, 17, MORE),
+        new Button("КАМЕРА", "txt", 0, MOUSE_MIDDLE, true, 224, false, 78, 17, MORE),  // centre the camera behind Vito
         new Button("ПРИСЕД", "crouch", KeyEvent.KEYCODE_C, 0, true, 180, false, 78, 17, MORE),
         new Button("БЕГ", "run", KeyEvent.KEYCODE_SHIFT_LEFT, 0, true, 136, false, 78, 17, MORE),
         // on foot
@@ -128,6 +128,14 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         new Button("ВЫЙТИ", "exit", KeyEvent.KEYCODE_F, 0, true, 62, true, 162, 20, CAR),
         new Button("СИГНАЛ", "horn", KeyEvent.KEYCODE_E, 0, true, 240, true, 104, 17, CAR),
         new Button("ЛИМИТ", "limiter", KeyEvent.KEYCODE_L, 0, true, 182, true, 200, 17, CAR),
+        new Button("КАМЕРА", "txt", 0, MOUSE_MIDDLE, true, 224, false, 34, 17, CAR),  // switch the driving camera
+        new Button("РАДИО", "txt", KeyEvent.KEYCODE_PERIOD, 0, true, 268, false, 34, 17, CAR),  // next station
+        new Button("НАЗАД", "txt", KeyEvent.KEYCODE_SHIFT_LEFT, 0, true, 240, true, 32, 17, CAR),  // look back (hold)
+        // weapon row (the game's numpad weapon groups, manual p. 10)
+        new Button("ВИНТОВКИ", "txt", KeyEvent.KEYCODE_NUMPAD_2, 0, true, 224, false, 122, 19, WEAP),
+        new Button("КУЛАКИ", "txt", KeyEvent.KEYCODE_NUMPAD_4, 0, true, 180, false, 122, 19, WEAP),
+        new Button("ПИСТОЛЕТЫ", "txt", KeyEvent.KEYCODE_NUMPAD_6, 0, true, 136, false, 122, 19, WEAP),
+        new Button("АВТОМАТЫ", "txt", KeyEvent.KEYCODE_NUMPAD_8, 0, true, 92, false, 122, 19, WEAP),
         // menus: arrow keys (the game's menus take them like a keyboard), next to the cursor
         new Button("ВВЕРХ", "up", KeyEvent.KEYCODE_DPAD_UP, 0, false, 120, true, 190, 26, MENU),
         new Button("ВНИЗ", "down", KeyEvent.KEYCODE_DPAD_DOWN, 0, false, 120, true, 70, 26, MENU),
@@ -140,7 +148,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
     private float opacity, scale;
     private boolean vibrate, showFps, hideWithPad, autoRun, invertY;
     // the situation: in a car (from the game, or toggled by F when the game cannot tell), the "more" row, a movie
-    private boolean inCar, manualCar, stateKnown, lastPlayer, moreOpen, movie;
+    private boolean inCar, manualCar, stateKnown, lastPlayer, moreOpen, weaponOpen, movie;
     private long showDuringMovieUntil;
     private float camGain;
     private boolean padConnected;
@@ -261,7 +269,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
             "Перетаскивайте кнопки и стик, нажмите на кнопку, чтобы изменить её размер",
             "Drag the buttons and the stick, tap one to resize it",
             "Поддержать на Patreon", "Support on Patreon", "АВТО", "CAR", "ИГРА", "GAME", "МЕНЮ", "MENU",
-            "ПАУЗА", "PAUSE", "ОК", "OK", "КАРТА", "MAP", "ОРУЖИЕ", "WEAPON", "ЕЩЁ", "MORE", "ГРАНАТА", "GRENADE",
+            "ПАУЗА", "PAUSE", "ОК", "OK", "КАРТА", "MAP", "ОРУЖИЕ", "WEAPON", "ЕЩЁ", "MORE", "ГРАНАТА", "GRENADE", "КАМЕРА", "CAMERA", "РАДИО", "RADIO", "НАЗАД", "LOOK BACK", "ВИНТОВКИ", "RIFLES", "КУЛАКИ", "FISTS", "ПИСТОЛЕТЫ", "PISTOLS", "АВТОМАТЫ", "SMGS",
             "ПРИСЕД", "CROUCH", "БЕГ", "RUN", "ОГОНЬ", "FIRE", "ПРИЦЕЛ", "AIM", "ВВЕРХ", "UP", "ВНИЗ", "DOWN", "ВЛЕВО", "LEFT", "ВПРАВО", "RIGHT", "ДЕЙСТВИЕ", "ACTION",
             "ПРЫЖОК", "JUMP", "СЕСТЬ", "ENTER CAR", "УКРЫТИЕ", "COVER", "ОБОЙМА", "RELOAD", "УДАР", "PUNCH",
             "РУЧНИК", "HANDBRAKE", "ВЫЙТИ", "EXIT CAR", "СИГНАЛ", "HORN", "ЛИМИТ", "LIMITER",
@@ -377,6 +385,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         movie = (s & 4) != 0;
         if (context() != before) {
             moreOpen = false;
+            weaponOpen = false;
             // let go of what the new situation does not show; the stick and the camera stay held
             for (Button b : buttons) if (b.pointer >= 0 && !visible(b)) release(b);
             if (!gameMode && stickPointer >= 0) releaseStick();
@@ -589,10 +598,13 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         b.pointer = pointer;
         pointerButton.put(pointer, b);
         buzz();
-        if (b.keycode == 0 && b.mouseButton == 0) {  // ЕЩЁ: the row of rarer keys
-            moreOpen = !moreOpen;
+        if (b.keycode == 0 && b.mouseButton == 0) {  // ЕЩЁ / ОРУЖИЕ: open their row, close the other
+            boolean weapons = "weapon".equals(b.icon);
+            weaponOpen = weapons && !weaponOpen;
+            moreOpen = !weapons && !moreOpen;
             return;
         }
+        if ((b.ctx & WEAP) != 0) weaponOpen = false;  // a weapon group was picked
         if (b.keycode == KeyEvent.KEYCODE_F && !stateKnown) manualCar = !manualCar;  // the game cannot tell: guess
         if (aimToggle && "aim".equals(b.icon)) {
             aimLatched = !aimLatched;
@@ -674,7 +686,8 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
 
     private boolean visible(Button b) {
         int c = context();
-        boolean here = (b.ctx & c) != 0 || ((b.ctx & MORE) != 0 && c == FOOT && (moreOpen || editing));
+        boolean here = (b.ctx & c) != 0 || ((b.ctx & MORE) != 0 && c == FOOT && (moreOpen || editing))
+                || ((b.ctx & WEAP) != 0 && (c == FOOT || c == CAR) && (weaponOpen || editing));
         if (editing) return here;
         return here && !controlsHidden() && !movieHidden();
     }
@@ -982,7 +995,7 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
     }
 
     private void drawButton(Canvas c, Button b) {
-        final boolean down = b.pointer >= 0 || ("more".equals(b.icon) && moreOpen) || ("aim".equals(b.icon) && aimLatched);
+        final boolean down = b.pointer >= 0 || ("more".equals(b.icon) && moreOpen) || ("weapon".equals(b.icon) && weaponOpen) || ("aim".equals(b.icon) && aimLatched);
         Bitmap bmp = cached(b.label + (down ? ":1:" : ":0:") + b.r, b.r + 12 * density,
                 (cc, x, y) -> paintButton(cc, b, x, y, down));
         blitCentered(c, bmp, b.cx, b.cy);
@@ -1003,7 +1016,20 @@ public class TouchControls extends View implements InputManager.InputDeviceListe
         edge.setStrokeWidth(0.8f * density);
         edge.setColor(alpha(RED_DIM, 0.9f));
         c.drawPath(path, edge);
-        drawIcon(c, b.icon, bx, by, b.r * 0.46f, down ? 0xffffffff : 0xfff5e6c0);
+        if ("txt".equals(b.icon)) {  // a word instead of a picture
+            float old = text.getTextSize();
+            int oldColor = text.getColor();
+            Paint.Align oldAlign = text.getTextAlign();
+            text.setTextAlign(Paint.Align.CENTER);
+            text.setTextSize(b.r * 0.42f);
+            text.setColor(down ? 0xffffffff : 0xfff5e6c0);
+            c.drawText(tr(b.label), bx, by + b.r * 0.15f, text);
+            text.setTextSize(old);
+            text.setColor(oldColor);
+            text.setTextAlign(oldAlign);
+        } else {
+            drawIcon(c, b.icon, bx, by, b.r * 0.46f, down ? 0xffffffff : 0xfff5e6c0);
+        }
     }
 
     private final Path ip = new Path();
