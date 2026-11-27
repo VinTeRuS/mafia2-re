@@ -662,7 +662,7 @@ _FLAG_CALLS = [("SubFlags(c, ", "SubFlagsL(&rf, "), ("AddFlags(c, ", "AddFlagsL(
                ("RecompSahf(c, ", "RecompSahfL(&rf, "), ("RecompEflags(c)", "RecompEflagsL(&rf)"),
                ("RecompSetEflags(c, ", "RecompSetEflagsL(&rf, "), ("X87CompareFlags(c, ", "X87CompareFlagsL(&rf, ")]
 # Callees that read or write the general registers through the context: spill before, reload after.
-_SPILL_CALL_RE = re.compile(r"\b(f_[0-9a-f]{8}|RecompDispatch|RecompUnimplemented|RecompCpuid|RecompLongjmp|RecompRepMovs|RecompRepStos)\(c\b")
+_SPILL_CALL_RE = re.compile(r"\b(f_[0-9a-f]{8}|RecompDispatch|RecompDispatchIC|RecompUnimplemented|RecompCpuid|RecompLongjmp|RecompRepMovs|RecompRepStos)\(c\b")
 
 
 def _wrap_calls(line):
@@ -1209,7 +1209,11 @@ class FunctionCompiler:
                             f"else RecompDispatch(c, 0x{t:08x}u);")
                 self.unknown_targets.add(t)
                 return f"Push32(c, 0x{nxt:08x}u); RecompDispatch(c, 0x{t:08x}u);"
-            return f"{{ uint32_t t = {self.read(ins, ops[0])}; Push32(c, 0x{nxt:08x}u); RecompDispatch(c, t); }}"
+            if os.environ.get("RECOMP_NO_IC"):
+                return f"{{ uint32_t t = {self.read(ins, ops[0])}; Push32(c, 0x{nxt:08x}u); RecompDispatch(c, t); }}"
+            # per-site inline cache (RECOMP_NO_IC=1 disables)
+            return (f"{{ static uint64_t ic; uint32_t t = {self.read(ins, ops[0])}; Push32(c, 0x{nxt:08x}u); "
+                    f"RecompDispatchIC(c, t, &ic); }}")
         if base == "ret":
             n = ops[0].imm if ops else 0
             keep = "/*RETFLAGS*/ " if ins.address in self.ret_flags else ""

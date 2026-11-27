@@ -224,6 +224,19 @@ static uint32_t FollowThunks(uint32_t target) {
 }
 
 
+extern "C" void RecompDispatchSlowIC(Ctx* ctx, uint32_t target, uint64_t* ic) {
+    if (!native::InImportArea(target)) {
+        if (RecompFn fn = RecompLookup(target)) {
+            const intptr_t off = reinterpret_cast<intptr_t>(fn) - intptr_t(reinterpret_cast<uintptr_t>(&RecompLookup));
+            if (target && off == intptr_t(int32_t(off)))
+                __atomic_store_n(ic, (uint64_t(target) << 32) | uint32_t(int32_t(off)), __ATOMIC_RELAXED);
+            fn(ctx);
+            return;
+        }
+    }
+    RecompDispatch(ctx, target);
+}
+
 extern "C" void RecompDispatch(Ctx* ctx, uint32_t target) {
     // Import calls first (D3D alone makes 20 000-30 000 a frame): straight to the handler, no hash probes.
     if (native::InImportArea(target)) {

@@ -55,6 +55,17 @@ void RecompTrace(Ctx* ctx, uint32_t va);
 /* Looks up the recompiled implementation of a guest function entry, or null. */
 RecompFn RecompLookup(uint32_t target);
 
+/* Per-call-site monomorphic inline cache: ic = (target << 32) | (uint32_t)(fn - (uintptr_t)&RecompLookup), one
+ * relaxed 64-bit word (thread-safe: written in a single store). Filled by RecompDispatchSlowIC for recompiled targets. */
+void RecompDispatchSlowIC(Ctx* ctx, uint32_t target, uint64_t* ic);
+static inline void RecompDispatchIC(Ctx* ctx, uint32_t target, uint64_t* ic) {
+    uint64_t v = __atomic_load_n(ic, __ATOMIC_RELAXED);
+    if (__builtin_expect((uint32_t)(v >> 32) == target && target, 1))
+        ((RecompFn)((uintptr_t)&RecompLookup + (intptr_t)(int32_t)(uint32_t)v))(ctx);
+    else
+        RecompDispatchSlowIC(ctx, target, ic);
+}
+
 /* Direct calls between recompiled functions are allowed unless the embedding restricts them (bisect range, test
  * detours in the in-process prototype). */
 extern volatile uint32_t RecompRestrictLo, RecompRestrictHi, RecompTestDetours;
